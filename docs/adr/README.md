@@ -1,0 +1,32 @@
+# Architecture Decision Records
+
+ADR — короткий документ, фиксирующий одно архитектурное/техническое
+решение и его обоснование. Один файл = одно решение.
+
+## Список
+
+| № | Заголовок | Статус |
+|---|---|---|
+| [0001](0001-web-app-format.md) | Формат реализации — веб-приложение | Принято |
+| [0002](0002-agent-team-structure.md) | Агентная command-and-control структура разработки | Принято |
+| [0003](0003-stack-choice.md) | Выбор стека — React/Next.js + Node/Python + PostgreSQL | Принято |
+| [0004](0004-backend-framework.md) | Backend-фреймворк — NestJS | Принято |
+| [0005](0005-modular-monolith.md) | Модульный монолит | Принято |
+| [0006](0006-auth-mechanism.md) | Аутентификация — email+пароль, собственный JWT | Принято |
+| [0007](0007-file-storage-abstraction.md) | Файловое хранилище — интерфейс + локальная реализация | Принято (частично — провайдер/хостинг отдельно) |
+| [0008](0008-ocr-engine-meter-readings.md) | OCR-движок для показаний счётчика — Tesseract | Принято |
+| [0009](0009-realtime-chat-not-required-mvp.md) | Realtime для чата не обязателен в MVP | Принято |
+| [0010](0010-add-designer-role.md) | Добавление роли `designer` в агентную команду | Принято |
+| [0011](0011-payment-bill-future-acquiring-readiness.md) | Готовность Payment/Bill под будущий эквайринг (СБП) | Принято |
+| [0012](0012-payment-confirmation-nominal-flow.md) | Подтверждение оплаты — номинальный флоу (без эквайринга) | Принято |
+| [0013](0013-mvp-scheduler-nestjs-schedule.md) | Планировщик периодов в MVP — @nestjs/schedule (BullMQ отложен) | Принято |
+
+## Как завести новый ADR
+
+1. Скопировать `0000-template.md` в `NNNN-краткое-название.md`
+   (номер по порядку, kebab-case).
+2. Заполнить разделы: Контекст, Решение, Последствия.
+3. Добавить строку в таблицу выше.
+4. Добавить запись в `docs/CHANGELOG.md`.
+
+Полные правила — `docs/DOCUMENTATION_RULES.md`.

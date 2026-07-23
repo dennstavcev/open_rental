@@ -1,0 +1,18 @@
+# Зависимости и сборки
+node_modules/
+dist/
+.next/
+out/
+
+# Секреты и локальные конфиги (в репозиторий не попадают)
+.env
+.env.*
+!.env.example
+frontend/.env.local
+
+# Загрузки локального хранилища
+uploads/
+
+# Прочее
+*.log
+.DS_Store

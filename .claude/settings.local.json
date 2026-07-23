@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(echo \"npm: $\\(npm -v \\)\")",
+      "Bash(docker -v)",
+      "Bash(echo \"docker: $\\(docker -v \\)\")",
+      "Bash(psql --version)"
+    ]
+  }
+}

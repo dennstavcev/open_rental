@@ -1,0 +1,484 @@
+// OPENRENT — Prisma schema.
+// Провайдер — PostgreSQL (ADR-0003). ORM — Prisma (деталь реализации per
+// ADR-0004, зафиксировано в CHANGELOG 2026-07-21).
+//
+// На старте Phase 1 моделируются только сущности, нужные модулю Auth.
+// Остальные сущности (Property, Lease, Bill, ...) добавляются по мере
+// реализации соответствующих модулей — см. docs/ARCHITECTURE.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Роль, выбранная при регистрации. ВАЖНО: это onboarding-намерение для
+// маршрутизации мастера, НЕ атрибут авторизации. Реальная роль по объекту
+// определяется связями Property.ownerId / Lease.tenantId
+// (см. docs/ARCHITECTURE.md, User).
+enum SignupRole {
+  landlord
+  tenant
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  signupRole   SignupRole
+  // Системная роль сотрудника сервиса (не landlord/tenant). Единственная
+  // с доступом к «сырым» ПДн и правом удаления. Выдаётся вручную, не через
+  // публичную регистрацию.
+  isSuperAdmin Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  properties    Property[]
+  leasesAsLandlord Lease[] @relation("LandlordLeases")
+  leasesAsTenant   Lease[] @relation("TenantLeases")
+  signedScans      LeaseSignedScan[]
+  notifications    Notification[]
+
+  @@map("users")
+}
+
+// Уведомление пользователю о событии (docs/ARCHITECTURE.md, Notification).
+// Персистится + отправляется через NotificationChannel (dev — консоль).
+model Notification {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  type      String
+  title     String
+  body      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+// Объект недвижимости (docs/ARCHITECTURE.md, Property). Владелец даёт роль
+// landlord для этого объекта. Фото и вычисляемый статус (сдаётся/свободно)
+// добавляются позже (Documents/Lease-модули).
+model Property {
+  id           String   @id @default(uuid())
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId      String
+  address      String
+  propertyType String
+  areaSqm      Float?
+  description  String?
+  // IANA timezone, нужен для корректной границы расчётного периода по
+  // регионам РФ (docs/ARCHITECTURE.md, docs/MVP_SCOPE.md §4).
+  timezone     String   @default("Europe/Moscow")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  services  Service[]
+  meters    Meter[]
+  leases    Lease[]
+
+  @@index([ownerId])
+  @@map("properties")
+}
+
+enum LeaseStatus {
+  draft
+  sent
+  active
+  terminated
+}
+
+// Договор аренды (docs/ARCHITECTURE.md, Lease): Property + landlord + ровно
+// один tenant. На Property не более одного active-договора одновременно.
+// Активация (sent→active) через сканы LeaseDocument — отдельный инкремент.
+model Lease {
+  id         String      @id @default(uuid())
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  landlord   User        @relation("LandlordLeases", fields: [landlordId], references: [id])
+  landlordId String
+  tenant     User?       @relation("TenantLeases", fields: [tenantId], references: [id])
+  tenantId   String?
+  startDate  DateTime
+  endDate    DateTime
+  rentAmount Decimal     @db.Decimal(12, 2)
+  depositAmount Decimal  @default(0) @db.Decimal(12, 2)
+  // День месяца (1–28) — дата оплаты, граница расчётного периода.
+  paymentDay Int
+  // Ставка пени за просрочку оплаты — % от суммы счёта за день.
+  penaltyRatePercentPerDay Decimal @db.Decimal(5, 2)
+  status     LeaseStatus @default(draft)
+  // Заполняются при расторжении (termination).
+  effectiveEndDate     DateTime?
+  depositReturnAmount  Decimal?  @db.Decimal(12, 2)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  invitations Invitation[]
+  terminationRequests TerminationRequest[]
+  signedScans LeaseSignedScan[]
+  bills       Bill[]
+  maintenanceRequests MaintenanceRequest[]
+  messages    Message[]
+  documents   LeaseDocument[]
+  tenantInfo  TenantInfo?
+
+  @@index([propertyId])
+  @@index([landlordId])
+  @@index([tenantId])
+  @@map("leases")
+}
+
+// Паспортные данные арендатора (docs/ARCHITECTURE.md, TenantInfo). Хранятся
+// зашифрованным блобом (AES-256-GCM, CryptoService). Читает только сам
+// арендатор и SuperAdmin — landlord доступа к сырым ПДн не имеет (152-ФЗ).
+model TenantInfo {
+  id          String   @id @default(uuid())
+  lease       Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId     String   @unique
+  enteredById String
+  dataEnc     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("tenant_info")
+}
+
+// Сгенерированный текст договора (docs/ARCHITECTURE.md, LeaseDocument) —
+// отдельно от сканов с подписью (LeaseSignedScan). Версионируется на договор.
+model LeaseDocument {
+  id            String   @id @default(uuid())
+  lease         Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId       String
+  version       Int
+  format        String   @default("html")
+  content       String
+  generatedById String
+  createdAt     DateTime @default(now())
+
+  @@unique([leaseId, version])
+  @@index([leaseId])
+  @@map("lease_documents")
+}
+
+// Сообщение в переписке по договору (docs/ARCHITECTURE.md, Message). Без
+// realtime (ADR-0009). Удаление — только SuperAdmin (не реализовано).
+model Message {
+  id        String   @id @default(uuid())
+  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId   String
+  senderId  String
+  body      String
+  isOfficial Boolean @default(false)
+  // Опциональное вложение (файл через StorageProvider).
+  attachmentStorageKey String?
+  attachmentMime       String?
+  attachmentName       String?
+  editedAt  DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([leaseId])
+  @@map("messages")
+}
+
+enum MaintenanceStatus {
+  open
+  in_progress
+  resolved
+}
+
+enum SettlementPayer {
+  tenant
+  owner
+  split
+}
+
+// Заявка на обслуживание (docs/ARCHITECTURE.md, MaintenanceRequest).
+// Обычную заявку создаёт только tenant; landlord ведёт статус. Сумма
+// урегулирования — по двустороннему подтверждению → строка в счёт.
+model MaintenanceRequest {
+  id          String            @id @default(uuid())
+  lease       Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId     String
+  createdById String
+  category    String
+  description String
+  status      MaintenanceStatus @default(open)
+  photoStorageKey String?
+
+  settlementAmount           Decimal?         @db.Decimal(12, 2)
+  settlementPayer            SettlementPayer?
+  confirmedByTenant          Boolean          @default(false)
+  confirmedByLandlord        Boolean          @default(false)
+  settlementAppliedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leaseId])
+  @@map("maintenance_requests")
+}
+
+enum BillStage {
+  draft
+  final
+}
+
+// Ровно 3 хранимых значения статуса оплаты (docs/ARCHITECTURE.md, Bill;
+// ADR-0012). «Просрочен» — не статус, а вычисляемый флаг.
+enum BillPaymentStatus {
+  pending
+  payment_claimed
+  paid
+}
+
+// Счёт по Lease за расчётный период (docs/ARCHITECTURE.md, Bill).
+model Bill {
+  id            String             @id @default(uuid())
+  lease         Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId       String
+  stage         BillStage          @default(draft)
+  paymentStatus BillPaymentStatus?
+  periodStart   DateTime
+  periodEnd     DateTime
+  dueDate       DateTime
+  // Снимок ставки пени с договора на момент создания счёта.
+  penaltyRatePercentPerDay Decimal @db.Decimal(5, 2)
+  // Прощение пени (landlord, одностороннее, необратимо).
+  penaltyWaived       Boolean   @default(false)
+  penaltyWaivedAmount Decimal?  @db.Decimal(12, 2)
+  penaltyWaivedAt     DateTime?
+  paidAt        DateTime?
+  // Задел под будущий эквайринг СБП (ADR-0011), в MVP всегда null.
+  paymentLink   String?
+  qrPayload     String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  lineItems BillLineItem[]
+  payment   Payment?
+
+  @@index([leaseId])
+  @@map("bills")
+}
+
+enum BillItemKind {
+  rent
+  service
+  utility
+  maintenance
+  manual
+}
+
+enum BillItemSource {
+  manual
+  service
+  meter_reading
+  maintenance
+  ocr
+}
+
+model BillLineItem {
+  id          String         @id @default(uuid())
+  bill        Bill           @relation(fields: [billId], references: [id], onDelete: Cascade)
+  billId      String
+  kind        BillItemKind
+  source      BillItemSource
+  amount      Decimal        @db.Decimal(12, 2)
+  title       String
+  // Ссылка на источник (serviceId / meterReadingId / ...) — для истории.
+  sourceRefId String?
+  createdAt   DateTime       @default(now())
+
+  @@index([billId])
+  @@map("bill_line_items")
+}
+
+enum PaymentMethod {
+  manual
+  sbp
+}
+
+// Подтверждение оплаты счёта (docs/ARCHITECTURE.md, Payment). В MVP —
+// ручная фиксация, method=manual.
+model Payment {
+  id                    String        @id @default(uuid())
+  bill                  Bill          @relation(fields: [billId], references: [id], onDelete: Cascade)
+  billId                String        @unique
+  amount                Decimal       @db.Decimal(12, 2)
+  method                PaymentMethod @default(manual)
+  // Задел под СБП (ADR-0011) — id операции у провайдера, в MVP null.
+  providerTransactionId String?
+  confirmedById         String
+  confirmedAt           DateTime      @default(now())
+
+  @@map("payments")
+}
+
+enum LeaseParty {
+  landlord
+  tenant
+}
+
+// Скан подписанного договора от одной стороны (docs/ARCHITECTURE.md,
+// LeaseDocument → «сканы»). По одному на сторону; наличие обоих активирует
+// договор (факт заключения, docs/USER_FLOWS.md §1.2). Хранение файла — через
+// StorageProvider (ADR-0007), в БД только метаданные + ключ.
+model LeaseSignedScan {
+  id           String     @id @default(uuid())
+  lease        Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId      String
+  uploadedBy   User       @relation(fields: [uploadedById], references: [id])
+  uploadedById String
+  role         LeaseParty
+  storageKey   String
+  mimeType     String
+  // Момент загрузки = техническое «подтверждаю» стороны.
+  confirmedAt  DateTime   @default(now())
+
+  // Одна сторона — один скан на договор.
+  @@unique([leaseId, role])
+  @@index([leaseId])
+  @@map("lease_signed_scans")
+}
+
+enum TerminationStatus {
+  pending
+  finalized
+  cancelled
+}
+
+// Заявка на расторжение (docs/ARCHITECTURE.md, категория termination).
+// Инициирует любая сторона (min 30 дней), финализирует только landlord.
+model TerminationRequest {
+  id           String            @id @default(uuid())
+  lease        Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId      String
+  initiatedById String
+  requestedTerminationDate DateTime
+  reason       String?
+  status       TerminationStatus @default(pending)
+  periodEndOverride DateTime?
+  finalizedById String?
+  finalizedAt  DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([leaseId])
+  @@map("termination_requests")
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  declined
+}
+
+// Приглашение landlord → tenant на конкретный договор
+// (docs/ARCHITECTURE.md, Invitation). Механизм знакомства сторон.
+model Invitation {
+  id           String           @id @default(uuid())
+  lease        Lease            @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId      String
+  invitedEmail String
+  token        String           @unique
+  status       InvitationStatus @default(pending)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([invitedEmail])
+  @@index([leaseId])
+  @@map("invitations")
+}
+
+enum ServiceType {
+  monthly
+  one_time
+}
+
+// Услуга каталога, привязана к Property, не к Lease — переживает смену
+// арендатора (docs/MVP_SCOPE.md §4, docs/ARCHITECTURE.md, Service).
+model Service {
+  id          String      @id @default(uuid())
+  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId  String
+  name        String
+  price       Decimal     @db.Decimal(12, 2)
+  serviceType ServiceType
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([propertyId])
+  @@map("services")
+}
+
+enum MeterType {
+  electricity
+  water
+  gas
+  heating
+}
+
+// Счётчик, привязан к Property. На объекте может быть несколько счётчиков,
+// в т.ч. одного типа — различаются пользовательским name
+// (docs/ARCHITECTURE.md, Meter). Тариф — на счётчике. Показания
+// (MeterReading) добавляются в модуле биллинга.
+model Meter {
+  id         String    @id @default(uuid())
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId String
+  meterType  MeterType
+  name       String
+  tariff     Decimal   @db.Decimal(12, 4)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  readings   MeterReading[]
+
+  @@index([propertyId])
+  @@map("meters")
+}
+
+// Показание счётчика (docs/ARCHITECTURE.md, MeterReading). Фото обязательно
+// (через StorageProvider). `value` — подтверждённое пользователем значение
+// (расчётное), `ocrValue` — что вернул OCR (в MVP замокан → обычно null).
+model MeterReading {
+  id             String   @id @default(uuid())
+  meter          Meter    @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  meterId        String
+  // Договор, в чей расчётный период попадает показание.
+  leaseId        String
+  value          Decimal  @db.Decimal(12, 3)
+  ocrValue       Decimal? @db.Decimal(12, 3)
+  photoStorageKey String
+  enteredById    String
+  readingDate    DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([meterId])
+  @@index([leaseId])
+  @@map("meter_readings")
+}
+
+// Refresh-токены с возможностью отзыва (ADR-0006). Хранится хеш токена,
+// не сам токен.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}

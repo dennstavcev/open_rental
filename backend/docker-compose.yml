@@ -1,0 +1,22 @@
+# Локальное дев-окружение (localhost). Прод-хостинг сознательно не решён
+# (см. docs/READINESS_AUDIT.md).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openrent
+      POSTGRES_PASSWORD: openrent
+      POSTGRES_DB: openrent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # Под будущий планировщик расчётных периодов на BullMQ (следствие ADR-0004).
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
