@@ -1,5 +1,7 @@
 # Apartment Rental — Landlord-Tenant Communication Service
 
+[![CI](https://github.com/dennstavcev/open_rental/actions/workflows/ci.yml/badge.svg)](https://github.com/dennstavcev/open_rental/actions/workflows/ci.yml)
+
 Рабочее название продукта — **OPENRENT** (предварительное, 2026-07-21).
 
 Веб-сервис для коммуникации между арендодателем и арендатором помещения:
@@ -17,10 +19,38 @@ Phase 1 (MVP) в активной разработке. Код:
   объекты/счётчики/услуги, договоры (генерация текста, сканы, активация,
   расторжение), биллинг (счета/пени/показания/планировщик), заявки, чат,
   отчёты, уведомления, ПДн с шифрованием + SuperAdmin.
-- [`frontend/`](frontend/README.md) — Next.js: Auth + объекты (старт).
+- [`frontend/`](frontend/README.md) — Next.js (App Router): auth,
+  дашборд, объекты/счётчики/показания, договоры (текст/сканы/активация/
+  расторжение), платежи, чат, заявки, отчёты, уведомления.
 
 Ключевые решения фиксируются в `docs/adr/`, статусы — в `docs/ROADMAP.md`,
 журнал — в `docs/CHANGELOG.md`.
+
+## Быстрый старт
+
+Требуется **Node.js 20+**. Тесты бэкенда БД не требуют (Prisma замокан).
+
+```bash
+# 1) unit-тесты бэкенда (121 тест, без БД)
+cd backend && npm install && npm test
+
+# 2) сборка/типизация фронтенда
+cd ../frontend && npm install && npm run build
+
+# 3) полный локальный запуск с реальной БД (нужен Docker)
+cd ../backend
+cp .env.example .env            # dev-секреты уже прописаны
+docker compose up -d            # PostgreSQL 16 + Redis 7
+npm run prisma:migrate          # создаёт схему (18 таблиц)
+npm run start:prod              # API: http://localhost:3000/api
+
+cd ../frontend
+cp .env.local.example .env.local
+PORT=3001 npm run dev           # UI: http://localhost:3001
+```
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) прогоняет тесты бэкенда и
+сборку фронтенда на каждый push и pull request.
 
 ## Документация
 
