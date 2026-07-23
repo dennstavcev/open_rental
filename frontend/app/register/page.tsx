@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuth, SignupRole } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 
 export default function RegisterPage() {
@@ -12,7 +12,6 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [signupRole, setSignupRole] = useState<SignupRole>('landlord');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +20,7 @@ export default function RegisterPage() {
     setError(null);
     setBusy(true);
     try {
-      await register({ fullName, email, password, signupRole });
+      await register({ fullName, email, password });
       router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка регистрации');
@@ -63,16 +62,10 @@ export default function RegisterPage() {
             required
           />
         </div>
-        <div className="field">
-          <label>Роль</label>
-          <select
-            value={signupRole}
-            onChange={(e) => setSignupRole(e.target.value as SignupRole)}
-          >
-            <option value="landlord">Арендодатель</option>
-            <option value="tenant">Арендатор</option>
-          </select>
-        </div>
+        <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+          Роль не выбирается: вы становитесь собственником, добавив объект,
+          или арендатором, приняв приглашение на договор.
+        </p>
         {error && <div className="error">{error}</div>}
         <button type="submit" disabled={busy}>
           {busy ? 'Регистрация…' : 'Зарегистрироваться'}

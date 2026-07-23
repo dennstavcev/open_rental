@@ -42,8 +42,33 @@ function OnboardingInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Мастер настройки</h1>
-        <p className="muted">Шаг {step} из 5</p>
+        <h1>Мастер: сдача объекта за 4 шага</h1>
+        <p className="muted">
+          Проведём от пустого профиля до отправленного арендатору договора:
+          объект → счётчики/услуги → условия договора → приглашение.
+        </p>
+        <div
+          style={{
+            display: 'flex',
+            gap: 6,
+            margin: '14px 0 18px',
+          }}
+        >
+          {[1, 2, 3, 4].map((n) => (
+            <div
+              key={n}
+              style={{
+                flex: 1,
+                height: 6,
+                borderRadius: 3,
+                background: step >= n ? 'var(--accent)' : 'var(--border)',
+              }}
+            />
+          ))}
+        </div>
+        <p className="muted" style={{ marginTop: -8 }}>
+          Шаг {Math.min(step, 4)} из 4
+        </p>
         {error && <div className="error">{error}</div>}
 
         {step === 1 && (
@@ -85,9 +110,19 @@ function OnboardingInner() {
         )}
         {step === 5 && (
           <div className="card">
-            <h3>Готово!</h3>
-            <p>Объект, договор и приглашение созданы.</p>
-            <Link href={`/leases/${leaseId}`}>Открыть договор →</Link>
+            <h3>Готово! Что дальше</h3>
+            <p className="muted">
+              Объект создан, договор отправлен арендатору. Дальше:
+            </p>
+            <ol className="muted" style={{ paddingLeft: 18, margin: '8px 0' }}>
+              <li>Арендатор принимает приглашение из письма.</li>
+              <li>Обе стороны загружают сканы подписанного договора — после
+                этого он станет «Действует».</li>
+              <li>Появится первый счёт, арендатор сможет подавать показания.</li>
+            </ol>
+            <Link href={`/leases/${leaseId}`}>
+              <button>Открыть договор</button>
+            </Link>
           </div>
         )}
       </div>
@@ -123,7 +158,12 @@ function StepProperty({
         });
       }}
     >
-      <h3>1. Объект</h3>
+      <h3>Шаг 1. Объект недвижимости</h3>
+      <p className="muted">
+        Начните с квартиры/помещения, которое сдаёте. Достаточно адреса —
+        тип и площадь можно указать сейчас или позже. Именно добавление
+        объекта делает вас собственником в системе.
+      </p>
       <div className="field">
         <label>Адрес</label>
         <input value={address} onChange={(e) => setAddress(e.target.value)} required />
@@ -167,7 +207,14 @@ function StepCatalog({
 
   return (
     <div className="card">
-      <h3>2. Счётчики и услуги (необязательно)</h3>
+      <h3>Шаг 2. Счётчики и услуги</h3>
+      <p className="muted">
+        Необязательно, но экономит время потом. Счётчики (свет/вода/газ)
+        нужны, чтобы арендатор подавал показания, а стоимость коммуналки
+        автоматически попадала в счёт. Услуги (интернет, уборка) —
+        ежемесячные добавляются в каждый счёт сами. Можно пропустить и
+        добавить позже в карточке объекта.
+      </p>
 
       <div className="muted">Услуги: {services.map((s) => s.name).join(', ') || '—'}</div>
       <form
@@ -270,7 +317,14 @@ function StepLease({
         });
       }}
     >
-      <h3>3. Договор</h3>
+      <h3>Шаг 3. Условия договора</h3>
+      <p className="muted">
+        Задайте срок, размер аренды и «день оплаты» — число месяца, от
+        которого считаются расчётные периоды и формируются счета. Ставка
+        пени применяется при просрочке оплаты (0 — без пени). Пока это
+        черновик: договор вступит в силу только после подписания сканов
+        обеими сторонами.
+      </p>
       <div className="field">
         <label>Дата начала</label>
         <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
@@ -325,7 +379,12 @@ function StepInvite({
         });
       }}
     >
-      <h3>4. Пригласить арендатора</h3>
+      <h3>Шаг 4. Пригласить арендатора</h3>
+      <p className="muted">
+        Укажите email арендатора — ему придёт приглашение. Он
+        регистрируется по этому адресу, принимает приглашение и становится
+        арендатором договора. Нельзя пригласить самого себя.
+      </p>
       <div className="field">
         <label>Email арендатора</label>
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

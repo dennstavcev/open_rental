@@ -14,8 +14,6 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { MessagesModule } from './messages/messages.module';
 import { ReportsModule } from './reports/reports.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { CryptoModule } from './crypto/crypto.module';
-import { TenantInfoModule } from './tenant-info/tenant-info.module';
 import { TerminationModule } from './termination/termination.module';
 
 @Module({
@@ -25,10 +23,8 @@ import { TerminationModule } from './termination/termination.module';
     PrismaModule,
     StorageModule,
     OcrModule,
-    CryptoModule,
     NotificationsModule,
     AuthModule,
-    TenantInfoModule,
     PropertiesModule,
     ServicesModule,
     MetersModule,

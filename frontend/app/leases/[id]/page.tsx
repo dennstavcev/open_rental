@@ -137,9 +137,6 @@ function LeaseDetailInner() {
                   >
                     <Link href={`/leases/${lease.id}/chat`}>Чат →</Link>
                     <Link href={`/leases/${lease.id}/requests`}>Заявки →</Link>
-                    <Link href={`/leases/${lease.id}/tenant-info`}>
-                      Паспортные данные →
-                    </Link>
                     {lease.status === 'active' && (
                       <Link href={`/leases/${lease.id}/termination`}>
                         Расторжение →

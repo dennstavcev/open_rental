@@ -50,7 +50,6 @@ export class AuthService {
         email,
         passwordHash,
         fullName: dto.fullName,
-        signupRole: dto.signupRole,
       },
     });
 

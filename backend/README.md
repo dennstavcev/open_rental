@@ -14,9 +14,9 @@ NestJS (ADR-0004), модульный монолит (ADR-0005), PostgreSQL + Pr
 **Maintenance** — заявки + согласование суммы; **Messages** — чат по
 договору (Phase 1, п.5); **Reports** — сводка собственника (Phase 1,
 п.6); **Notifications** — `NotificationChannel` + persist + триггеры +
-каскад напоминаний (Phase 1, п.7); **TenantInfo** — ПДн с шифрованием +
-роль **SuperAdmin**; **Termination** — расторжение с пропорцией; вложения
-к сообщениям и системное удаление.
+каскад напоминаний (Phase 1, п.7); роль **SuperAdmin** (удаление
+переписки/документов); **Termination** — расторжение с пропорцией;
+вложения к сообщениям и системное удаление.
 
 ## Локальный запуск
 
@@ -38,15 +38,14 @@ npm test
 
 | Метод | Путь | Описание |
 |---|---|---|
-| POST | `/register` | Регистрация (email, password, fullName, signupRole: `landlord`\|`tenant`) → пара токенов |
+| POST | `/register` | Регистрация (email, password, fullName) → пара токенов |
 | POST | `/login` | Вход → пара токенов |
 | POST | `/refresh` | Ротация refresh-токена → новая пара |
 | POST | `/logout` | Отзыв refresh-токена |
 | GET  | `/me` | Текущий пользователь (Bearer access-токен) |
 
-`signupRole` — onboarding-намерение для маршрутизации мастера, **не**
-авторизация: реальная роль определяется по связям Property/Lease
-(`docs/ARCHITECTURE.md`, User).
+Роль (собственник/арендатор) **не** задаётся при регистрации —
+определяется по связям Property/Lease (`docs/ARCHITECTURE.md`, User).
 
 ## Эндпоинты Properties (`/api/properties`)
 
@@ -122,8 +121,8 @@ landlord для него).
 ### Текст договора (`/api/leases/:leaseId/document`, Bearer)
 
 Генерация текста договора по шаблону РФ (Handlebars, источник —
-`dogovor_arendy.docx`); заполняются известные поля, персональные данные
-(`TenantInfo`) — прочерки для заполнения от руки перед подписанием.
+`dogovor_arendy.docx`); заполняются известные поля, паспортные данные —
+прочерки для заполнения от руки на бумаге (в сервисе ПДн не хранятся).
 
 | Метод | Путь | Кто | Описание |
 |---|---|---|---|
@@ -131,8 +130,7 @@ landlord для него).
 | GET  | `/` | landlord/tenant | Последняя версия (метаданные + `content`) |
 | GET  | `/html` | landlord/tenant | Print-ready HTML (браузер → печать → PDF) |
 
-PDF-рендер (Puppeteer) отложен — HTML print-ready. Паспортные данные
-арендатора (`TenantInfo`, шифрование) — отдельный инкремент
+PDF-рендер (Puppeteer) отложен — HTML print-ready
 (см. `docs/CHANGELOG.md`).
 
 ## Биллинг (Bearer)
@@ -217,12 +215,10 @@ PDF-рендер (Puppeteer) отложен — HTML print-ready. Паспорт
 арендатору подать показания. Реальный email/SMS-провайдер — отложен
 (с хостингом, см. `docs/CHANGELOG.md`).
 
-## ПДн арендатора и расторжение (Bearer)
+## Расторжение договора (Bearer)
 
 | Метод | Путь | Кто | Описание |
 |---|---|---|---|
-| PUT | `/api/leases/:leaseId/tenant-info` | tenant | Ввести/обновить паспортные данные (шифруются AES-256-GCM) |
-| GET | `/api/leases/:leaseId/tenant-info` | tenant (свои) / SuperAdmin | Расшифрованные ПДн (landlord доступа не имеет) |
 | POST | `/api/leases/:leaseId/termination-requests` | любая сторона | Заявка на расторжение (≥30 дней) |
 | GET | `/api/leases/:leaseId/termination-requests` | стороны | Список заявок |
 | POST | `/api/termination-requests/:id/finalize` | landlord | Финализировать → `terminated` + пропорция последнего счёта |

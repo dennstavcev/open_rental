@@ -22,8 +22,6 @@ export interface CurrentUser {
   isSuperAdmin: boolean;
 }
 
-export type SignupRole = 'landlord' | 'tenant';
-
 interface AuthContextValue {
   user: CurrentUser | null;
   loading: boolean;
@@ -32,7 +30,6 @@ interface AuthContextValue {
     email: string;
     password: string;
     fullName: string;
-    signupRole: SignupRole;
   }) => Promise<void>;
   logout: () => void;
 }
@@ -75,12 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (input: {
-      email: string;
-      password: string;
-      fullName: string;
-      signupRole: SignupRole;
-    }) => {
+    async (input: { email: string; password: string; fullName: string }) => {
       const tokens = await apiFetch<AuthTokens>('/auth/register', {
         method: 'POST',
         body: JSON.stringify(input),

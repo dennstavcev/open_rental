@@ -15,24 +15,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Роль, выбранная при регистрации. ВАЖНО: это onboarding-намерение для
-// маршрутизации мастера, НЕ атрибут авторизации. Реальная роль по объекту
-// определяется связями Property.ownerId / Lease.tenantId
-// (см. docs/ARCHITECTURE.md, User).
-enum SignupRole {
-  landlord
-  tenant
-}
-
+// Роль пользователя НЕ хранится на профиле — определяется по связям
+// (Property.ownerId / Lease.tenantId). См. docs/ARCHITECTURE.md, User.
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
   fullName     String
-  signupRole   SignupRole
-  // Системная роль сотрудника сервиса (не landlord/tenant). Единственная
-  // с доступом к «сырым» ПДн и правом удаления. Выдаётся вручную, не через
-  // публичную регистрацию.
+  // Системная роль сотрудника сервиса (не landlord/tenant). Право удаления
+  // сообщений/сканов. Выдаётся вручную, не через публичную регистрацию.
   isSuperAdmin Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -128,27 +119,11 @@ model Lease {
   maintenanceRequests MaintenanceRequest[]
   messages    Message[]
   documents   LeaseDocument[]
-  tenantInfo  TenantInfo?
 
   @@index([propertyId])
   @@index([landlordId])
   @@index([tenantId])
   @@map("leases")
-}
-
-// Паспортные данные арендатора (docs/ARCHITECTURE.md, TenantInfo). Хранятся
-// зашифрованным блобом (AES-256-GCM, CryptoService). Читает только сам
-// арендатор и SuperAdmin — landlord доступа к сырым ПДн не имеет (152-ФЗ).
-model TenantInfo {
-  id          String   @id @default(uuid())
-  lease       Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId     String   @unique
-  enteredById String
-  dataEnc     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@map("tenant_info")
 }
 
 // Сгенерированный текст договора (docs/ARCHITECTURE.md, LeaseDocument) —

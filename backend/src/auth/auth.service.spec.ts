@@ -1,7 +1,6 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { SignupRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -61,7 +60,6 @@ describe('AuthService', () => {
         email: 'a@b.ru',
         password: 'password123',
         fullName: 'Иван',
-        signupRole: SignupRole.landlord,
       });
 
       expect(tokens.accessToken).toBeTruthy();
@@ -80,7 +78,6 @@ describe('AuthService', () => {
         email: 'A@B.RU',
         password: 'password123',
         fullName: 'Иван',
-        signupRole: SignupRole.landlord,
       });
       expect(prisma.user.create.mock.calls[0][0].data.email).toBe('a@b.ru');
     });
@@ -92,7 +89,6 @@ describe('AuthService', () => {
           email: 'a@b.ru',
           password: 'password123',
           fullName: 'Иван',
-          signupRole: SignupRole.tenant,
         }),
       ).rejects.toBeInstanceOf(ConflictException);
     });
@@ -156,7 +152,6 @@ describe('AuthService', () => {
         email: 'a@b.ru',
         password: 'password123',
         fullName: 'Иван',
-        signupRole: SignupRole.landlord,
       });
 
       const jti = prisma.refreshToken.create.mock.calls[0][0].data.id;
@@ -187,7 +182,6 @@ describe('AuthService', () => {
         email: 'a@b.ru',
         password: 'password123',
         fullName: 'Иван',
-        signupRole: SignupRole.landlord,
       });
 
       const jti = prisma.refreshToken.create.mock.calls[0][0].data.id;
