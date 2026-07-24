@@ -1,4 +1,4 @@
-# OPENRENT — frontend
+# SoftRent — frontend
 
 Next.js (App Router, TypeScript), клиентская часть стека (ADR-0001/0003).
 

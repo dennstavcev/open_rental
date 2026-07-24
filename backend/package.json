@@ -1,7 +1,7 @@
 {
-  "name": "openrent-backend",
+  "name": "softrent-backend",
   "version": "0.0.1",
-  "description": "OPENRENT — backend (NestJS modular monolith)",
+  "description": "SoftRent — backend (NestJS modular monolith)",
   "private": true,
   "scripts": {
     "build": "nest build",

@@ -1,4 +1,4 @@
-# User Flows и User Stories — MVP (OPENRENT)
+# User Flows и User Stories — MVP (SoftRent)
 
 > Источник: `docs/MVP_SCOPE.md` (экраны и модули), решения из
 > `docs/CHANGELOG.md` (записи 2026-07-20/21). Статус — черновик

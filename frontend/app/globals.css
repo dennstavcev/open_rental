@@ -1,6 +1,6 @@
 /* ==========================================================================
    Design tokens — imported from Claude Design handoff
-   ("OpenRent Design System", https://claude.ai/design/p/9d23e4c8-1e7a-44a7-862a-3d3e5fb89e0e)
+   ("SoftRent Design System", https://claude.ai/design/p/9d23e4c8-1e7a-44a7-862a-3d3e5fb89e0e)
    See docs/DESIGN_SYSTEM.md for the full spec and rationale.
    No brand font files were provided in the source (screenshots only) —
    Manrope substituted as the nearest geometric warm sans with Cyrillic support.
@@ -8,7 +8,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* -- raw palette (sampled from the OpenRent prototype) -- */
+  /* -- raw palette (sampled from the SoftRent prototype) -- */
   --cream-50: #faf3e7;
   --cream-100: #f1e2c9;
   --sand-200: #e6cda3;

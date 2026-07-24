@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/dennstavcev/open_rental/actions/workflows/ci.yml/badge.svg)](https://github.com/dennstavcev/open_rental/actions/workflows/ci.yml)
 
-Рабочее название продукта — **OPENRENT** (предварительное, 2026-07-21).
+Рабочее название продукта — **SoftRent** (домен **softrent.ru**;
+переименовано 2026-07-24, ранее OPENRENT).
 
 Веб-сервис для коммуникации между арендодателем и арендатором помещения:
 единое пространство для переписки, документов, заявок на обслуживание и

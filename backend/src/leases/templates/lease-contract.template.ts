@@ -90,6 +90,6 @@ export const LEASE_CONTRACT_TEMPLATE = `<!DOCTYPE html>
   </tr>
 </table>
 
-<p class="muted" style="font-size:9pt">Сформировано сервисом OPENRENT {{generatedDate}}. Персональные данные (паспорт, адрес регистрации, телефон, кадастровый номер) заполняются Сторонами перед подписанием.</p>
+<p class="muted" style="font-size:9pt">Сформировано сервисом SoftRent {{generatedDate}}. Персональные данные (паспорт, адрес регистрации, телефон, кадастровый номер) заполняются Сторонами перед подписанием.</p>
 </body>
 </html>`;

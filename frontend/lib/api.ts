@@ -3,8 +3,8 @@
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api';
 
-const ACCESS_KEY = 'openrent.accessToken';
-const REFRESH_KEY = 'openrent.refreshToken';
+const ACCESS_KEY = 'softrent.accessToken';
+const REFRESH_KEY = 'softrent.refreshToken';
 
 export interface AuthTokens {
   accessToken: string;

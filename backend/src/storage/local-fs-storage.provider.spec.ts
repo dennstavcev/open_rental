@@ -9,7 +9,7 @@ describe('LocalFsStorageProvider', () => {
   let provider: LocalFsStorageProvider;
 
   beforeEach(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'openrent-storage-'));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'softrent-storage-'));
     provider = new LocalFsStorageProvider(
       new ConfigService({ UPLOADS_DIR: dir }),
     );

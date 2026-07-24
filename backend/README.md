@@ -1,4 +1,4 @@
-# OPENRENT — backend
+# SoftRent — backend
 
 NestJS (ADR-0004), модульный монолит (ADR-0005), PostgreSQL + Prisma
 (ADR-0003; выбор Prisma — CHANGELOG 2026-07-21). Структура модулей — 1:1

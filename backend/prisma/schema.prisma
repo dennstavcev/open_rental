@@ -1,4 +1,4 @@
-// OPENRENT — Prisma schema.
+// SoftRent — Prisma schema.
 // Провайдер — PostgreSQL (ADR-0003). ORM — Prisma (деталь реализации per
 // ADR-0004, зафиксировано в CHANGELOG 2026-07-21).
 //
