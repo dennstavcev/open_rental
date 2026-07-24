@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { EmptyState, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
@@ -12,11 +13,13 @@ function ChatInner() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [body, setBody] = useState('');
   const [official, setOfficial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -24,12 +27,18 @@ function ChatInner() {
       setMessages(await listMessages(id));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
+    } finally {
+      setLoaded(true);
     }
   }, [id]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   async function onSend(e: FormEvent) {
     e.preventDefault();
@@ -53,60 +62,52 @@ function ChatInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Чат по договору</h1>
+        <PageHeader back={`/leases/${id}`} title="Чат по договору" />
         {error && <div className="error">{error}</div>}
 
-        {messages.length === 0 ? (
-          <p className="muted">Сообщений пока нет.</p>
+        {loaded && messages.length === 0 ? (
+          <EmptyState icon="chat" title="Сообщений пока нет" text="Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон." />
         ) : (
-          messages.map((m) => (
-            <div
-              className="card"
-              key={m.id}
-              style={{
-                borderColor: m.isOfficial ? 'var(--accent)' : undefined,
-              }}
-            >
-              <div className="muted">
-                {m.senderId === user?.id ? 'Вы' : 'Собеседник'} ·{' '}
-                {m.createdAt.slice(0, 16).replace('T', ' ')}
-                {m.isOfficial && ' · официальное'}
-                {m.editedAt && ' · изменено'}
-              </div>
-              <div>{m.body}</div>
-              {m.attachmentStorageKey && (
-                <button
-                  className="secondary"
-                  style={{ marginTop: 6 }}
-                  onClick={() => openAttachment(m.id)}
-                >
-                  Вложение: {m.attachmentName ?? 'файл'}
-                </button>
-              )}
-            </div>
-          ))
+          <div className="chat-thread">
+            {messages.map((m) => {
+              const mine = m.senderId === user?.id;
+              return (
+                <div key={m.id} className={`bubble ${mine ? 'mine' : 'theirs'} ${m.isOfficial ? 'official' : ''}`}>
+                  {m.body}
+                  {m.attachmentStorageKey && (
+                    <button className="attach" onClick={() => openAttachment(m.id)}>
+                      📎 {m.attachmentName ?? 'файл'}
+                    </button>
+                  )}
+                  <div className="meta">
+                    {m.createdAt.slice(11, 16)}
+                    {m.isOfficial && ' · официальное'}
+                    {m.editedAt && ' · изменено'}
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={endRef} />
+          </div>
         )}
 
-        <form className="card" onSubmit={onSend}>
-          <div className="field">
-            <label>Сообщение</label>
-            <input value={body} onChange={(e) => setBody(e.target.value)} required />
-          </div>
-          <label className="muted" style={{ display: 'block', marginBottom: 8 }}>
-            <input
-              type="checkbox"
-              checked={official}
-              onChange={(e) => setOfficial(e.target.checked)}
-            />{' '}
-            официальное сообщение
+        <form className="composer" onSubmit={onSend}>
+          <label className="chip" style={{ cursor: 'pointer', flex: 'none' }} title="Прикрепить файл">
+            📎
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: 'none' }} />
           </label>
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" />
-          <div style={{ marginTop: 8 }}>
-            <button type="submit" disabled={busy}>
-              {busy ? 'Отправка…' : 'Отправить'}
-            </button>
-          </div>
+          <input
+            type="text"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Сообщение…"
+          />
+          <button type="submit" disabled={busy}>→</button>
         </form>
+        <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked)} style={{ width: 'auto' }} />
+          Отметить как официальное сообщение
+        </label>
       </div>
     </>
   );

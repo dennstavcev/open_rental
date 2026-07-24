@@ -42,33 +42,17 @@ function OnboardingInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Мастер: сдача объекта за 4 шага</h1>
+        <h1>Сдача объекта за 4 шага</h1>
         <p className="muted">
           Проведём от пустого профиля до отправленного арендатору договора:
-          объект → счётчики/услуги → условия договора → приглашение.
+          объект → счётчики/услуги → условия → приглашение.
         </p>
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            margin: '14px 0 18px',
-          }}
-        >
+        <div className="stepper">
           {[1, 2, 3, 4].map((n) => (
-            <div
-              key={n}
-              style={{
-                flex: 1,
-                height: 6,
-                borderRadius: 3,
-                background: step >= n ? 'var(--accent)' : 'var(--border)',
-              }}
-            />
+            <div key={n} className={`seg ${step >= n ? 'on' : ''}`} />
           ))}
         </div>
-        <p className="muted" style={{ marginTop: -8 }}>
-          Шаг {Math.min(step, 4)} из 4
-        </p>
+        <p className="muted">Шаг {Math.min(step, 4)} из 4</p>
         {error && <div className="error">{error}</div>}
 
         {step === 1 && (

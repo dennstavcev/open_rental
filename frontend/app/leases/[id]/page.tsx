@@ -1,11 +1,12 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { List, PageHeader, Row, Section } from '@/components/ui';
 import { ApiError } from '@/lib/api';
+import { getProperty } from '@/lib/properties';
 import {
   generateDocument,
   getDocument,
@@ -21,11 +22,12 @@ import {
 const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' };
 
 function LeaseDetailInner() {
-  const params = useParams<{ id: string }>();
-  const id = params.id;
+  const { id } = useParams<{ id: string }>();
   const [lease, setLease] = useState<Lease | null>(null);
+  const [address, setAddress] = useState<string>('');
   const [scans, setScans] = useState<LeaseSignedScan[]>([]);
   const [docHtml, setDocHtml] = useState<string | null>(null);
+  const [showDoc, setShowDoc] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,13 +38,14 @@ function LeaseDetailInner() {
     try {
       const l = await getLease(id);
       setLease(l);
+      getProperty(l.propertyId).then((p) => setAddress(p.address)).catch(() => {});
       if (l.status === 'sent' || l.status === 'active') {
         setScans(await listSignedScans(id));
       }
       try {
         setDocHtml((await getDocument(id)).content);
       } catch {
-        setDocHtml(null); // ещё не сгенерирован
+        setDocHtml(null);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
@@ -72,6 +75,7 @@ function LeaseDetailInner() {
     setError(null);
     try {
       setDocHtml((await generateDocument(id)).content);
+      setShowDoc(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка генерации');
     } finally {
@@ -86,10 +90,9 @@ function LeaseDetailInner() {
     setBusy(true);
     setError(null);
     try {
-      const res = await uploadSignedScan(id, file);
+      await uploadSignedScan(id, file);
       if (fileRef.current) fileRef.current.value = '';
       await load();
-      if (res.activated) setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки скана');
     } finally {
@@ -101,128 +104,116 @@ function LeaseDetailInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Договор</h1>
-        {error && <div className="error">{error}</div>}
         {!lease ? (
           <p className="muted">Загрузка…</p>
         ) : (
           <>
-            <div className="card">
-              <div>
-                <strong>Статус:</strong> {STATUS_LABEL[lease.status]}
-              </div>
-              <div className="muted">
-                Аренда {lease.rentAmount} ₽/мес · задаток {lease.depositAmount} ₽
-                · день оплаты {lease.paymentDay} · пеня{' '}
-                {lease.penaltyRatePercentPerDay}%/день
-              </div>
-              <div className="muted">
-                Срок: {lease.startDate.slice(0, 10)} —{' '}
-                {lease.endDate.slice(0, 10)}
-              </div>
-              {lease.status === 'active' && (
-                <div style={{ marginTop: 8 }}>
-                  <Link href={`/leases/${lease.id}/bills`}>Счета и платежи →</Link>
-                </div>
-              )}
-              {(lease.status === 'sent' || lease.status === 'active') &&
-                lease.tenantId && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: 'flex',
-                      gap: 16,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <Link href={`/leases/${lease.id}/chat`}>Чат →</Link>
-                    <Link href={`/leases/${lease.id}/requests`}>Заявки →</Link>
-                    {lease.status === 'active' && (
-                      <Link href={`/leases/${lease.id}/termination`}>
-                        Расторжение →
-                      </Link>
-                    )}
-                  </div>
-                )}
-            </div>
+            <PageHeader
+              back="/leases"
+              title={address || 'Договор'}
+              action={
+                <span className={`pill ${lease.status === 'active' ? 'ok' : ''}`}>
+                  {STATUS_LABEL[lease.status]}
+                </span>
+              }
+            />
+            {error && <div className="error">{error}</div>}
 
             <div className="card">
-              <h3>Текст договора</h3>
-              <button
-                className="secondary"
-                onClick={onGenerate}
-                disabled={busy}
-              >
-                {docHtml ? 'Перегенерировать' : 'Сгенерировать'}
-              </button>
-              {docHtml && (
-                <iframe
-                  title="Договор"
-                  srcDoc={docHtml}
-                  style={{
-                    width: '100%',
-                    height: 420,
-                    marginTop: 12,
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    background: '#fff',
-                  }}
-                />
-              )}
+              <div className="facts">
+                <div className="fact"><div className="k">АРЕНДА</div><div className="v">{lease.rentAmount} ₽/мес</div></div>
+                <div className="fact"><div className="k">ЗАДАТОК</div><div className="v">{lease.depositAmount} ₽</div></div>
+                <div className="fact"><div className="k">ДЕНЬ ОПЛАТЫ</div><div className="v">{lease.paymentDay} числа</div></div>
+                <div className="fact"><div className="k">ПЕНЯ</div><div className="v">{lease.penaltyRatePercentPerDay}%/день</div></div>
+                <div className="fact"><div className="k">СРОК</div><div className="v">{lease.startDate.slice(0, 10)} — {lease.endDate.slice(0, 10)}</div></div>
+              </div>
             </div>
+
+            {lease.status === 'active' && lease.tenantId && (
+              <List>
+                <Row icon="wallet" title="Счета и платежи" href={`/leases/${id}/bills`} />
+                <Row icon="chat" title="Чат по договору" href={`/leases/${id}/chat`} />
+                <Row icon="wrench" title="Заявки на обслуживание" href={`/leases/${id}/requests`} />
+                <Row icon="key" title="Расторжение" href={`/leases/${id}/termination`} />
+              </List>
+            )}
+
+            <Section
+              title="Текст договора"
+              action={
+                <button className="link" onClick={onGenerate} disabled={busy}>
+                  {docHtml ? 'Перегенерировать' : 'Сгенерировать'}
+                </button>
+              }
+            >
+              {docHtml ? (
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <button
+                    className="row"
+                    onClick={() => setShowDoc((v) => !v)}
+                    style={{ borderBottom: showDoc ? '1px solid var(--border-default)' : 'none' }}
+                  >
+                    <span className="lead"><span style={{ fontSize: 18 }}>📄</span></span>
+                    <span className="body"><span className="t">Договор аренды</span><span className="s">{showDoc ? 'Скрыть' : 'Показать текст'}</span></span>
+                  </button>
+                  {showDoc && (
+                    <iframe
+                      title="Договор"
+                      srcDoc={docHtml}
+                      style={{ width: '100%', height: 460, border: 'none', background: '#fff' }}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="empty">Текст ещё не сгенерирован.</div>
+              )}
+            </Section>
 
             {lease.status === 'draft' && (
-              <form className="card" onSubmit={onSend}>
-                <h3>Отправить арендатору</h3>
-                <div className="field">
-                  <label>Email арендатора</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <button type="submit" disabled={busy}>
-                  {busy ? 'Отправка…' : 'Отправить приглашение'}
-                </button>
-              </form>
+              <Section title="Отправить арендатору">
+                <form className="card" onSubmit={onSend}>
+                  <div className="field">
+                    <label>Email арендатора</label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tenant@mail.ru" required />
+                  </div>
+                  <button type="submit" disabled={busy} style={{ width: '100%' }}>
+                    {busy ? 'Отправка…' : 'Отправить приглашение'}
+                  </button>
+                </form>
+              </Section>
             )}
 
             {(lease.status === 'sent' || lease.status === 'active') && (
-              <div className="card">
-                <h3>Подписанные сканы</h3>
-                <p className="muted">
-                  Распечатайте текст, подпишите обеими сторонами и загрузите
-                  сканы. Договор активируется автоматически, когда сканы
-                  загрузят оба.
-                </p>
-                {scans.length === 0 ? (
-                  <p className="muted">Сканов пока нет.</p>
-                ) : (
-                  scans.map((s) => (
-                    <div key={s.id} className="muted">
-                      ✓ {ROLE_LABEL[s.role]} — загружен{' '}
-                      {s.confirmedAt.slice(0, 10)}
-                    </div>
-                  ))
-                )}
+              <Section title="Подписанные сканы">
+                <div className="hint">
+                  Распечатайте текст, подпишите обеими сторонами и загрузите сканы.
+                  Договор активируется автоматически, когда сканы загрузят оба.
+                </div>
+                <List>
+                  {(['landlord', 'tenant'] as const).map((role) => {
+                    const scan = scans.find((s) => s.role === role);
+                    return (
+                      <Row
+                        key={role}
+                        icon={scan ? 'check' : 'clock'}
+                        iconVariant={scan ? undefined : 'warm'}
+                        title={ROLE_LABEL[role]}
+                        subtitle={scan ? `Загружен ${scan.confirmedAt.slice(0, 10)}` : 'Ожидается скан'}
+                        chevron={false}
+                      />
+                    );
+                  })}
+                </List>
                 {lease.status === 'sent' && (
-                  <form onSubmit={onUpload} style={{ marginTop: 12 }}>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept="image/jpeg,image/png,application/pdf"
-                    />
-                    <button type="submit" disabled={busy} style={{ marginLeft: 8 }}>
-                      {busy ? 'Загрузка…' : 'Загрузить свой скан'}
-                    </button>
+                  <form onSubmit={onUpload} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ flex: 1 }} />
+                    <button type="submit" disabled={busy}>{busy ? 'Загрузка…' : 'Загрузить скан'}</button>
                   </form>
                 )}
                 {lease.status === 'active' && (
-                  <p style={{ color: 'green' }}>Договор заключён и действует.</p>
+                  <p className="pill ok" style={{ padding: '6px 12px' }}>Договор заключён и действует</p>
                 )}
-              </div>
+              </Section>
             )}
           </>
         )}

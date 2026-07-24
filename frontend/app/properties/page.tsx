@@ -1,14 +1,17 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
-import { Fab, List, PageHeader, Row, Sheet } from '@/components/ui';
+import { EmptyState, Fab, List, PageHeader, Row, Sheet } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { createProperty, listProperties, Property } from '@/lib/properties';
 
+const PROPERTY_TYPES = ['Квартира', 'Комната', 'Дом', 'Апартаменты', 'Коммерческое'];
+
 function PropertiesInner() {
+  const router = useRouter();
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,52 +59,6 @@ function PropertiesInner() {
     }
   }
 
-  // Витринный первый вход — фото-фон как в референсе Claude Design.
-  if (!loading && items.length === 0 && !showForm) {
-    return (
-      <div className="photo-backdrop">
-        <div className="backdrop-scrim" />
-        <div className="backdrop-content">
-          <div className="auth-topbar">
-            <Link href="/dashboard" aria-label="Назад">
-              ←
-            </Link>
-          </div>
-          <div
-            style={{
-              padding: '0 24px',
-              marginTop: 'auto',
-              marginBottom: 72,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 'var(--text-xl)',
-                fontWeight: 'var(--weight-semibold)',
-                color: 'var(--text-on-photo)',
-              }}
-            >
-              Сдайте первый объект
-            </span>
-            <span style={{ color: 'var(--text-on-photo-muted)', fontSize: 'var(--text-sm)' }}>
-              Добавьте квартиру или помещение — с этого начинается работа
-              арендодателя.
-            </span>
-            <button className="add-tile large" onClick={() => setShowForm(true)}>
-              + Добавить объект
-            </button>
-            <Link href="/onboarding" className="auth-divider">
-              или пройти мастер настройки
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <TopBar />
@@ -110,9 +67,11 @@ function PropertiesInner() {
           title="Объекты"
           subtitle="Ваша недвижимость в аренде"
           action={
-            <button className="secondary" onClick={() => setShowForm(true)}>
-              + Объект
-            </button>
+            items.length > 0 ? (
+              <button className="secondary" onClick={() => setShowForm(true)}>
+                + Объект
+              </button>
+            ) : undefined
           }
         />
 
@@ -122,6 +81,20 @@ function PropertiesInner() {
           <List>
             <Row title={<span className="skeleton" style={{ display: 'inline-block', width: 180, height: 14 }} />} chevron={false} />
           </List>
+        ) : items.length === 0 ? (
+          <EmptyState
+            icon="building"
+            title="Сдайте первый объект"
+            text="Добавьте квартиру или помещение — с этого начинается работа арендодателя."
+            action={
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button onClick={() => setShowForm(true)}>Добавить объект</button>
+                <button className="secondary" onClick={() => router.push('/onboarding')}>
+                  Мастер настройки
+                </button>
+              </div>
+            }
+          />
         ) : (
           <List>
             {items.map((p) => (
@@ -137,7 +110,7 @@ function PropertiesInner() {
         )}
       </div>
 
-      <Fab onClick={() => setShowForm(true)} label="Добавить объект" />
+      {items.length > 0 && <Fab onClick={() => setShowForm(true)} label="Добавить объект" />}
 
       {showForm && (
         <Sheet title="Новый объект" onClose={() => setShowForm(false)}>
@@ -151,13 +124,21 @@ function PropertiesInner() {
                 required
               />
             </div>
-            <div className="field">
-              <label>Тип</label>
-              <input value={propertyType} onChange={(e) => setPropertyType(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label>Площадь, м² (необязательно)</label>
-              <input type="number" value={area} onChange={(e) => setArea(e.target.value)} min={0} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Тип</label>
+                <select value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
+                  {PROPERTY_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Площадь, м²</label>
+                <input type="number" value={area} onChange={(e) => setArea(e.target.value)} min={0} placeholder="—" />
+              </div>
             </div>
             {error && <div className="error">{error}</div>}
             <div className="sheet-actions">

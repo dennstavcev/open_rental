@@ -14,6 +14,7 @@ const PATHS: Record<string, ReactNode> = {
   bell: <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0" />,
   mail: <path d="M3 6h18v12H3zM3 7l9 6 9-6" />,
   chevron: <path d="m9 6 6 6-6 6" />,
+  back: <path d="m15 18-6-6 6-6" />,
   plus: <path d="M12 5v14M5 12h14" />,
   wallet: <path d="M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-3M3 7h16a1 1 0 0 1 1 1v3m0 0h-4a2 2 0 0 0 0 4h4" />,
   chat: <path d="M4 5h16v11H9l-4 4V16H4z" />,
@@ -46,14 +47,28 @@ export function PageHeader({
   title,
   subtitle,
   action,
+  back,
 }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  back?: boolean | string;
 }) {
+  const router = useRouter();
   return (
     <div className="page-head">
-      <div className="titles">
+      <div className="titles" style={{ minWidth: 0 }}>
+        {back && (
+          <button
+            className="back-btn"
+            onClick={() =>
+              typeof back === 'string' ? router.push(back) : router.back()
+            }
+            aria-label="Назад"
+          >
+            <Icon name="back" />
+          </button>
+        )}
         <h1>{title}</h1>
         {subtitle && <p>{subtitle}</p>}
       </div>

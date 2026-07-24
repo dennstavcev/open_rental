@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { EmptyState, PageHeader, Section } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -22,7 +23,6 @@ function TerminationInner() {
   const [items, setItems] = useState<TerminationRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
   const [date, setDate] = useState('');
   const [reason, setReason] = useState('');
   const [override, setOverride] = useState<Record<string, string>>({});
@@ -81,72 +81,68 @@ function TerminationInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Расторжение договора</h1>
+        <PageHeader back={`/leases/${id}`} title="Расторжение" subtitle="Досрочное прекращение договора" />
         {error && <div className="error">{error}</div>}
 
         {lease?.status === 'active' && (
-          <form className="card" onSubmit={onCreate}>
-            <h3>Заявка на расторжение</h3>
-            <p className="muted">Дата расторжения — не ранее чем через 30 дней.</p>
-            <div className="field">
-              <label>Желаемая дата</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label>Причина (необязательно)</label>
-              <input value={reason} onChange={(e) => setReason(e.target.value)} />
-            </div>
-            <button type="submit" disabled={busy}>
-              {busy ? 'Отправка…' : 'Создать заявку'}
-            </button>
-          </form>
+          <Section title="Новая заявка">
+            <form className="card" onSubmit={onCreate}>
+              <div className="hint" style={{ marginTop: 0 }}>
+                Дата расторжения — не ранее чем через 30 дней. Инициировать может любая сторона; расторжение подтверждает собственник.
+              </div>
+              <div className="field">
+                <label>Желаемая дата</label>
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label>Причина (необязательно)</label>
+                <input value={reason} onChange={(e) => setReason(e.target.value)} />
+              </div>
+              <button type="submit" disabled={busy} style={{ width: '100%' }}>
+                {busy ? 'Отправка…' : 'Создать заявку'}
+              </button>
+            </form>
+          </Section>
         )}
 
-        {items.length === 0 ? (
-          <p className="muted">Заявок на расторжение нет.</p>
-        ) : (
-          items.map((t) => (
-            <div className="card" key={t.id}>
-              <div>
-                <strong>{TERMINATION_STATUS_LABEL[t.status]}</strong> · дата{' '}
-                {t.requestedTerminationDate.slice(0, 10)}
-              </div>
-              {t.reason && <div className="muted">{t.reason}</div>}
+        <Section title="Заявки">
+          {items.length === 0 ? (
+            <EmptyState icon="key" title="Заявок на расторжение нет" />
+          ) : (
+            items.map((t) => (
+              <div className="card" key={t.id}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <strong>{t.requestedTerminationDate.slice(0, 10)}</strong>
+                  <span className={`pill ${t.status === 'finalized' ? 'warn' : ''}`}>
+                    {TERMINATION_STATUS_LABEL[t.status]}
+                  </span>
+                </div>
+                {t.reason && <div className="muted" style={{ marginTop: 4 }}>{t.reason}</div>}
 
-              {t.status === 'pending' && isLandlord && (
-                <div style={{ marginTop: 8 }}>
-                  <p className="muted">
-                    Финализировать расторжение (решение собственника):
-                  </p>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <input
-                      type="date"
-                      value={override[t.id] ?? ''}
-                      onChange={(e) =>
-                        setOverride((s) => ({ ...s, [t.id]: e.target.value }))
-                      }
-                      title="Граница последнего периода (необязательно)"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Возврат задатка ₽"
-                      value={deposit[t.id] ?? ''}
-                      onChange={(e) =>
-                        setDeposit((s) => ({ ...s, [t.id]: e.target.value }))
-                      }
-                    />
-                    <button disabled={busy} onClick={() => onFinalize(t.id)}>
-                      Расторгнуть
+                {t.status === 'pending' && isLandlord && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                      <div className="field" style={{ flex: 1, minWidth: 140, margin: 0 }}>
+                        <label>Граница периода</label>
+                        <input type="date" value={override[t.id] ?? ''} onChange={(e) => setOverride((s) => ({ ...s, [t.id]: e.target.value }))} />
+                      </div>
+                      <div className="field" style={{ flex: 1, minWidth: 140, margin: 0 }}>
+                        <label>Возврат задатка, ₽</label>
+                        <input type="number" value={deposit[t.id] ?? ''} onChange={(e) => setDeposit((s) => ({ ...s, [t.id]: e.target.value }))} />
+                      </div>
+                    </div>
+                    <button disabled={busy} onClick={() => onFinalize(t.id)} style={{ width: '100%', marginTop: 12 }}>
+                      Расторгнуть договор
                     </button>
                   </div>
-                </div>
-              )}
-              {t.status === 'pending' && !isLandlord && (
-                <p className="muted">Ожидается решение собственника.</p>
-              )}
-            </div>
-          ))
-        )}
+                )}
+                {t.status === 'pending' && !isLandlord && (
+                  <p className="muted" style={{ marginTop: 8 }}>Ожидается решение собственника.</p>
+                )}
+              </div>
+            ))
+          )}
+        </Section>
       </div>
     </>
   );

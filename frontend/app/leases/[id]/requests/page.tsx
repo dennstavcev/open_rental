@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { EmptyState, Fab, Icon, PageHeader, Sheet } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -20,7 +21,7 @@ import {
   updateStatus,
 } from '@/lib/maintenance';
 
-function RequestRow({
+function RequestCard({
   req,
   isTenant,
   isLandlord,
@@ -48,74 +49,68 @@ function RequestRow({
   const canConfirm =
     !req.settlementAppliedAt &&
     req.settlementAmount !== null &&
-    ((isTenant && !req.confirmedByTenant) ||
-      (isLandlord && !req.confirmedByLandlord));
+    ((isTenant && !req.confirmedByTenant) || (isLandlord && !req.confirmedByLandlord));
 
   return (
-    <tr>
-      <td>
-        <strong>{req.category}</strong>
-        <div className="muted">{req.description}</div>
-      </td>
-      <td>
-        {isLandlord ? (
-          <select
-            value={req.status}
-            disabled={busy}
-            onChange={(e) => run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))}
-          >
-            <option value="open">Открыта</option>
-            <option value="in_progress">В работе</option>
-            <option value="resolved">Решена</option>
-          </select>
-        ) : (
-          <span className="pill">{STATUS_LABEL[req.status]}</span>
-        )}
-      </td>
-      <td>
-        {req.settlementAmount ? (
-          <div className="muted">
-            {req.settlementAmount} ₽ · {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}
-            <br />
-            {req.settlementAppliedAt
-              ? 'согласовано → в счёт'
-              : `аренд. ${req.confirmedByTenant ? '✓' : '—'} / собств. ${req.confirmedByLandlord ? '✓' : '—'}`}
-          </div>
-        ) : (
-          <span className="muted">—</span>
-        )}
-      </td>
-      <td>
-        {!req.settlementAppliedAt && (
-          <div className="table-actions">
-            <input
-              type="number"
-              placeholder="Сумма ₽"
-              style={{ width: 90 }}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-            <select value={payer} onChange={(e) => setPayer(e.target.value as SettlementPayer)}>
-              <option value="tenant">Арендатор</option>
-              <option value="owner">Собственник</option>
-              <option value="split">Пополам</option>
-            </select>
-            <button
-              className="secondary"
-              disabled={busy || !amount}
-              onClick={() => run(() => proposeSettlement(req.id, Number(amount), payer))}
-            >
-              Предложить
-            </button>
-            {canConfirm && (
-              <button disabled={busy} onClick={() => run(() => confirmSettlement(req.id))}>
-                Подтвердить
-              </button>
+    <div className="card">
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+        <span className="lead warm"><Icon name="wrench" /></span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <strong>{req.category}</strong>
+            {isLandlord ? (
+              <select
+                value={req.status}
+                disabled={busy}
+                onChange={(e) => run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))}
+                style={{ width: 'auto', padding: '4px 10px', fontSize: 'var(--text-sm)' }}
+              >
+                <option value="open">Открыта</option>
+                <option value="in_progress">В работе</option>
+                <option value="resolved">Решена</option>
+              </select>
+            ) : (
+              <span className="pill">{STATUS_LABEL[req.status]}</span>
             )}
           </div>
-        )}
-      </td>
-    </tr>
+          <div className="muted" style={{ marginTop: 4 }}>{req.description}</div>
+        </div>
+      </div>
+
+      {req.settlementAmount && (
+        <div className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
+          Урегулирование: <strong>{req.settlementAmount} ₽</strong> ·{' '}
+          {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}
+          {' — '}
+          {req.settlementAppliedAt
+            ? 'согласовано, добавлено в счёт'
+            : `подтвердили: арендатор ${req.confirmedByTenant ? '✓' : '—'}, собственник ${req.confirmedByLandlord ? '✓' : '—'}`}
+        </div>
+      )}
+
+      {!req.settlementAppliedAt && (
+        <div className="table-actions" style={{ marginTop: 12 }}>
+          <input
+            type="number"
+            placeholder="Сумма ₽"
+            style={{ width: 110 }}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <select value={payer} onChange={(e) => setPayer(e.target.value as SettlementPayer)} style={{ width: 'auto' }}>
+            <option value="tenant">Арендатор</option>
+            <option value="owner">Собственник</option>
+            <option value="split">Пополам</option>
+          </select>
+          <button className="secondary" disabled={busy || !amount} onClick={() => run(() => proposeSettlement(req.id, Number(amount), payer))}>
+            Предложить
+          </button>
+          {canConfirm && (
+            <button disabled={busy} onClick={() => run(() => confirmSettlement(req.id))}>Подтвердить</button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -126,6 +121,7 @@ function RequestsInner() {
   const [items, setItems] = useState<MaintenanceRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showForm, setShowForm] = useState(false);
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -157,6 +153,7 @@ function RequestsInner() {
       setCategory('');
       setDescription('');
       if (fileRef.current) fileRef.current.value = '';
+      setShowForm(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка создания');
@@ -169,57 +166,47 @@ function RequestsInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Заявки на обслуживание</h1>
+        <PageHeader back={`/leases/${id}`} title="Заявки" subtitle="Обслуживание и урегулирование" />
         {error && <div className="error">{error}</div>}
 
-        {isTenant && (
-          <form className="card" onSubmit={onCreate}>
-            <h3>Новая заявка</h3>
+        {items.length === 0 ? (
+          <EmptyState
+            icon="wrench"
+            title="Заявок пока нет"
+            text={isTenant ? 'Создайте заявку, если что-то требует ремонта или внимания.' : 'Заявки создаёт арендатор.'}
+            action={isTenant ? <button onClick={() => setShowForm(true)}>Новая заявка</button> : undefined}
+          />
+        ) : (
+          items.map((req) => (
+            <RequestCard key={req.id} req={req} isTenant={isTenant} isLandlord={isLandlord} reload={load} />
+          ))
+        )}
+      </div>
+
+      {isTenant && items.length > 0 && <Fab onClick={() => setShowForm(true)} label="Новая заявка" />}
+
+      {showForm && (
+        <Sheet title="Новая заявка" onClose={() => setShowForm(false)}>
+          <form onSubmit={onCreate}>
             <div className="field">
               <label>Категория</label>
-              <input value={category} onChange={(e) => setCategory(e.target.value)} required />
+              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Сантехника, электрика…" required />
             </div>
             <div className="field">
               <label>Описание</label>
-              <input value={description} onChange={(e) => setDescription(e.target.value)} required />
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} required />
             </div>
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" />
-            <div style={{ marginTop: 8 }}>
-              <button type="submit" disabled={busy}>
-                {busy ? 'Отправка…' : 'Создать заявку'}
-              </button>
+            <div className="field">
+              <label>Фото (необязательно)</label>
+              <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" />
+            </div>
+            <div className="sheet-actions">
+              <button type="button" className="secondary" onClick={() => setShowForm(false)}>Отмена</button>
+              <button type="submit" disabled={busy}>{busy ? 'Отправка…' : 'Создать'}</button>
             </div>
           </form>
-        )}
-
-        {items.length === 0 ? (
-          <div className="empty">Заявок пока нет.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Заявка</th>
-                  <th>Статус</th>
-                  <th>Урегулирование</th>
-                  <th>Согласование суммы</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((req) => (
-                  <RequestRow
-                    key={req.id}
-                    req={req}
-                    isTenant={isTenant}
-                    isLandlord={isLandlord}
-                    reload={load}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </Sheet>
+      )}
     </>
   );
 }
