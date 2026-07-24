@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
-import { EmptyState, Fab, Icon, PageHeader, Sheet } from '@/components/ui';
+import { EmptyState, Fab, Icon, LeaseTabs, PageHeader, Sheet } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -167,6 +167,7 @@ function RequestsInner() {
       <TopBar />
       <div className="container">
         <PageHeader back={`/leases/${id}`} title="Заявки" subtitle="Обслуживание и урегулирование" />
+        <LeaseTabs id={id} />
         {error && <div className="error">{error}</div>}
 
         {items.length === 0 ? (

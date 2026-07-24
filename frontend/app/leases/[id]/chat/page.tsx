@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
-import { EmptyState, PageHeader } from '@/components/ui';
+import { EmptyState, LeaseTabs, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
@@ -62,7 +62,8 @@ function ChatInner() {
     <>
       <TopBar />
       <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Чат по договору" />
+        <PageHeader back={`/leases/${id}`} title="Чат" />
+        <LeaseTabs id={id} />
         {error && <div className="error">{error}</div>}
 
         {loaded && messages.length === 0 ? (

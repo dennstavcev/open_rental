@@ -1,7 +1,8 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
 
 // ---- Icons (inline SVG, no deps) ----
 const PATHS: Record<string, ReactNode> = {
@@ -200,6 +201,28 @@ export function Segmented<T extends string>({
         >
           {o.label}
         </button>
+      ))}
+    </div>
+  );
+}
+
+// ---- Lease hub tabs ----
+export function LeaseTabs({ id }: { id: string }) {
+  const pathname = usePathname();
+  const tabs = [
+    { href: `/leases/${id}`, label: 'Обзор', exact: true },
+    { href: `/leases/${id}/bills`, label: 'Счета' },
+    { href: `/leases/${id}/chat`, label: 'Чат' },
+    { href: `/leases/${id}/requests`, label: 'Заявки' },
+  ];
+  const isActive = (t: { href: string; exact?: boolean }) =>
+    t.exact ? pathname === t.href : pathname.startsWith(t.href);
+  return (
+    <div className="lease-tabs">
+      {tabs.map((t) => (
+        <Link key={t.href} href={t.href} className={isActive(t) ? 'active' : ''}>
+          {t.label}
+        </Link>
       ))}
     </div>
   );

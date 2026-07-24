@@ -7,21 +7,37 @@ import { TopBar } from '@/components/TopBar';
 import { EmptyState, Icon, List, Row, Section } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { listProperties } from '@/lib/properties';
-import { listInvitations, listLeases, Lease, STATUS_LABEL } from '@/lib/leases';
+import {
+  listInvitations,
+  listLeases,
+  listSignedScans,
+  Lease,
+  STATUS_LABEL,
+} from '@/lib/leases';
+import { listBills } from '@/lib/billing';
 import { listNotifications } from '@/lib/notifications';
 import { getSummary } from '@/lib/reports';
+
+interface Action {
+  key: string;
+  icon: string;
+  title: string;
+  subtitle: string;
+  href: string;
+}
 
 function DashboardInner() {
   const { user } = useAuth();
   const router = useRouter();
   const [income, setIncome] = useState(0);
   const [outstanding, setOutstanding] = useState(0);
-  const [counts, setCounts] = useState({ properties: 0, active: 0, invitations: 0, unread: 0 });
   const [recent, setRecent] = useState<Lease[]>([]);
   const [addr, setAddr] = useState<Record<string, string>>({});
+  const [actions, setActions] = useState<Action[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    const uid = user?.id;
     const [props, leases, invs, notes, summary] = await Promise.all([
       listProperties().catch(() => []),
       listLeases().catch(() => []),
@@ -29,28 +45,84 @@ function DashboardInner() {
       listNotifications().catch(() => []),
       getSummary().catch(() => null),
     ]);
-    setAddr(Object.fromEntries(props.map((p) => [p.id, p.address])));
-    setCounts({
-      properties: props.length,
-      active: leases.filter((l) => l.status === 'active').length,
-      invitations: invs.length,
-      unread: notes.filter((n) => !n.readAt).length,
-    });
+    const addrMap = Object.fromEntries(props.map((p) => [p.id, p.address]));
+    setAddr(addrMap);
     setRecent(leases.slice(0, 4));
     if (summary) {
       setIncome(summary.income.total);
       setOutstanding(summary.outstanding.totalDue);
     }
+
+    const acts: Action[] = invs.map((inv) => ({
+      key: `inv-${inv.id}`,
+      icon: 'mail',
+      title: 'Примите приглашение',
+      subtitle: 'Станьте арендатором по договору',
+      href: '/invitations',
+    }));
+    if (notes.some((n) => !n.readAt)) {
+      const n = notes.filter((x) => !x.readAt).length;
+      acts.push({
+        key: 'notes',
+        icon: 'bell',
+        title: `${n} непрочитанных уведомлений`,
+        subtitle: 'Посмотреть события',
+        href: '/notifications',
+      });
+    }
+
+    // Конкретный следующий шаг по каждому договору
+    await Promise.all(
+      leases.map(async (l) => {
+        const role = l.tenantId === uid ? 'tenant' : 'landlord';
+        const place = addrMap[l.propertyId] ?? 'Договор';
+        if (l.status === 'sent') {
+          const scans = await listSignedScans(l.id).catch(() => []);
+          if (!scans.find((s) => s.role === role)) {
+            acts.push({
+              key: `sign-${l.id}`,
+              icon: 'doc',
+              title: 'Подпишите договор',
+              subtitle: place,
+              href: `/leases/${l.id}`,
+            });
+          }
+        } else if (l.status === 'active') {
+          const bills = await listBills(l.id).catch(() => []);
+          const fin = bills.find((b) => b.bill.stage === 'final' && b.bill.paymentStatus !== 'paid');
+          if (fin) {
+            if (role === 'tenant' && fin.bill.paymentStatus === 'pending') {
+              acts.push({
+                key: `pay-${l.id}`,
+                icon: 'wallet',
+                title: `Оплатите ${fin.totalDue.toLocaleString('ru')} ₽`,
+                subtitle: place,
+                href: `/leases/${l.id}/bills`,
+              });
+            }
+            if (role === 'landlord' && fin.bill.paymentStatus === 'payment_claimed') {
+              acts.push({
+                key: `confirm-${l.id}`,
+                icon: 'wallet',
+                title: 'Подтвердите оплату',
+                subtitle: place,
+                href: `/leases/${l.id}/bills`,
+              });
+            }
+          }
+        }
+      }),
+    );
+
+    setActions(acts);
     setLoading(false);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const name = user?.email?.split('@')[0] ?? '';
-  const attention =
-    counts.invitations > 0 || counts.unread > 0 || outstanding > 0;
 
   return (
     <>
@@ -70,6 +142,28 @@ function DashboardInner() {
           </div>
         </div>
 
+        <Section title="Сегодня">
+          {loading ? (
+            <List>
+              <Row title={<span className="skeleton" style={{ display: 'inline-block', width: 200, height: 14 }} />} chevron={false} />
+            </List>
+          ) : actions.length === 0 ? (
+            <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <span className="lead"><Icon name="check" /></span>
+              <div>
+                <div style={{ fontWeight: 'var(--weight-semibold)' }}>Всё под контролем</div>
+                <div className="muted">Нет действий, требующих вашего внимания.</div>
+              </div>
+            </div>
+          ) : (
+            <List>
+              {actions.map((a) => (
+                <Row key={a.key} icon={a.icon} iconVariant="warm" title={a.title} subtitle={a.subtitle} href={a.href} />
+              ))}
+            </List>
+          )}
+        </Section>
+
         <div className="chips">
           <button className="chip" onClick={() => router.push('/onboarding')}>
             <Icon name="plus" /> Сдать объект
@@ -85,66 +179,16 @@ function DashboardInner() {
           </button>
         </div>
 
-        {attention && (
-          <Section title="Требует внимания">
-            <List>
-              {counts.invitations > 0 && (
-                <Row
-                  icon="mail"
-                  iconVariant="warm"
-                  title="Новые приглашения"
-                  subtitle="Примите приглашение, чтобы стать арендатором"
-                  trail={counts.invitations}
-                  href="/invitations"
-                />
-              )}
-              {outstanding > 0 && (
-                <Row
-                  icon="wallet"
-                  iconVariant="warm"
-                  title="Ожидают оплаты"
-                  subtitle="Счета, по которым ждём оплату"
-                  trail={`${outstanding.toLocaleString('ru')} ₽`}
-                  href="/reports"
-                />
-              )}
-              {counts.unread > 0 && (
-                <Row
-                  icon="bell"
-                  iconVariant="warm"
-                  title="Непрочитанные уведомления"
-                  trail={counts.unread}
-                  href="/notifications"
-                />
-              )}
-            </List>
-          </Section>
-        )}
-
         <Section
           title="Договоры"
-          action={
-            recent.length > 0 ? (
-              <span className="link" onClick={() => router.push('/leases')}>
-                Все
-              </span>
-            ) : undefined
-          }
+          action={recent.length > 0 ? <span className="link" onClick={() => router.push('/leases')}>Все</span> : undefined}
         >
-          {loading ? (
-            <List>
-              <Row title={<span className="skeleton" style={{ display: 'inline-block', width: 160, height: 14 }} />} />
-            </List>
-          ) : recent.length === 0 ? (
+          {loading ? null : recent.length === 0 ? (
             <EmptyState
               icon="doc"
               title="Пока нет договоров"
               text="Заведите объект и оформите первый договор аренды."
-              action={
-                <button onClick={() => router.push('/onboarding')}>
-                  Начать
-                </button>
-              }
+              action={<button onClick={() => router.push('/onboarding')}>Начать</button>}
             />
           ) : (
             <List>
@@ -154,11 +198,7 @@ function DashboardInner() {
                   icon="doc"
                   title={addr[l.propertyId] ?? `Договор ${l.id.slice(0, 8)}`}
                   subtitle={`${l.rentAmount} ₽/мес · с ${l.startDate.slice(0, 10)}`}
-                  trail={
-                    <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
-                      {STATUS_LABEL[l.status]}
-                    </span>
-                  }
+                  trail={<span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>{STATUS_LABEL[l.status]}</span>}
                   href={`/leases/${l.id}`}
                 />
               ))}

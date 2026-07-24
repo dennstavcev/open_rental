@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
-import { List, PageHeader, Row, Section } from '@/components/ui';
+import { LeaseTabs, List, PageHeader, Row, Section } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { getProperty } from '@/lib/properties';
 import {
@@ -119,6 +119,8 @@ function LeaseDetailInner() {
             />
             {error && <div className="error">{error}</div>}
 
+            {lease.status === 'active' && lease.tenantId && <LeaseTabs id={id} />}
+
             <div className="card">
               <div className="facts">
                 <div className="fact"><div className="k">АРЕНДА</div><div className="v">{lease.rentAmount} ₽/мес</div></div>
@@ -130,12 +132,11 @@ function LeaseDetailInner() {
             </div>
 
             {lease.status === 'active' && lease.tenantId && (
-              <List>
-                <Row icon="wallet" title="Счета и платежи" href={`/leases/${id}/bills`} />
-                <Row icon="chat" title="Чат по договору" href={`/leases/${id}/chat`} />
-                <Row icon="wrench" title="Заявки на обслуживание" href={`/leases/${id}/requests`} />
-                <Row icon="key" title="Расторжение" href={`/leases/${id}/termination`} />
-              </List>
+              <div style={{ textAlign: 'right', margin: '-4px 0 8px' }}>
+                <a href={`/leases/${id}/termination`} className="muted">
+                  Расторжение договора →
+                </a>
+              </div>
             )}
 
             <Section
