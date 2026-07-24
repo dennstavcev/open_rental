@@ -30,50 +30,47 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="brand">OPENRENT</div>
-      <div className="card">
-      <h1 style={{ textAlign: 'center' }}>Регистрация</h1>
-      <form onSubmit={onSubmit}>
-        <div className="field">
-          <label>ФИО</label>
+    <div className="photo-backdrop">
+      <div className="backdrop-scrim" />
+      <div className="backdrop-content">
+        <div className="auth-topbar">
+          <Link href="/login" aria-label="Назад">←</Link>
+        </div>
+        <form className="auth-form" onSubmit={onSubmit}>
+          <h1>Регистрация</h1>
           <input
+            placeholder="ФИО"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             required
           />
-        </div>
-        <div className="field">
-          <label>Email</label>
           <input
             type="email"
+            placeholder="Почта"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
-        <div className="field">
-          <label>Пароль (мин. 8 символов)</label>
           <input
             type="password"
+            placeholder="Пароль (мин. 8 символов)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
             required
           />
-        </div>
-        <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-          Роль не выбирается: вы становитесь собственником, добавив объект,
-          или арендатором, приняв приглашение на договор.
-        </p>
-        {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Регистрация…' : 'Зарегистрироваться'}
-        </button>
-      </form>
-      <p className="muted" style={{ marginTop: 12 }}>
-        Уже есть аккаунт? <Link href="/login">Войти</Link>
-      </p>
+          <p className="muted" style={{ margin: '-8px 0 0', textAlign: 'center' }}>
+            Роль не выбирается: вы становитесь собственником, добавив объект,
+            или арендатором, приняв приглашение на договор.
+          </p>
+          {error && <div className="error">{error}</div>}
+          <button type="submit" disabled={busy}>
+            {busy ? 'Регистрация…' : 'Зарегистрироваться'}
+          </button>
+          <p className="auth-divider">
+            Уже есть аккаунт? <Link href="/login">Войти</Link>
+          </p>
+        </form>
       </div>
     </div>
   );

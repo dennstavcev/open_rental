@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { EmptyState, Icon, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import {
   acceptInvitation,
@@ -18,7 +19,6 @@ function InvitationsInner() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       setItems(await listInvitations());
@@ -50,51 +50,46 @@ function InvitationsInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Приглашения</h1>
+        <PageHeader title="Приглашения" subtitle="Договоры, куда вас пригласили арендатором" />
         {error && <div className="error">{error}</div>}
+
         {loading ? (
           <p className="muted">Загрузка…</p>
         ) : items.length === 0 ? (
-          <div className="empty">Новых приглашений нет.</div>
+          <EmptyState icon="mail" title="Новых приглашений нет" text="Когда собственник отправит вам договор, приглашение появится здесь." />
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Договор</th>
-                  <th>Email</th>
-                  <th>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((inv) => (
-                  <tr key={inv.id}>
-                    <td>
-                      <strong>{inv.leaseId.slice(0, 8)}</strong>
-                    </td>
-                    <td className="muted">{inv.invitedEmail}</td>
-                    <td>
-                      <div className="table-actions">
-                        <button
-                          disabled={busyId === inv.id}
-                          onClick={() => act(inv.id, true)}
-                        >
-                          Принять
-                        </button>
-                        <button
-                          className="secondary"
-                          disabled={busyId === inv.id}
-                          onClick={() => act(inv.id, false)}
-                        >
-                          Отклонить
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          items.map((inv) => (
+            <div className="card" key={inv.id}>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                <span className="lead warm">
+                  <Icon name="mail" />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 'var(--weight-semibold)' }}>
+                    Приглашение на договор
+                  </div>
+                  <div className="muted">{inv.invitedEmail}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <button
+                  style={{ flex: 1 }}
+                  disabled={busyId === inv.id}
+                  onClick={() => act(inv.id, true)}
+                >
+                  Принять
+                </button>
+                <button
+                  className="secondary"
+                  style={{ flex: 1 }}
+                  disabled={busyId === inv.id}
+                  onClick={() => act(inv.id, false)}
+                >
+                  Отклонить
+                </button>
+              </div>
+            </div>
+          ))
         )}
       </div>
     </>

@@ -3,6 +3,7 @@ node_modules/
 dist/
 .next/
 out/
+*.tsbuildinfo
 
 # Секреты и локальные конфиги (в репозиторий не попадают)
 .env

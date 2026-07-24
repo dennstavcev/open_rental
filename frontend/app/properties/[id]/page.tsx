@@ -31,10 +31,12 @@ function PropertyDetailInner() {
   const [svcName, setSvcName] = useState('');
   const [svcPrice, setSvcPrice] = useState('');
   const [svcType, setSvcType] = useState<ServiceType>('monthly');
+  const [showSvcForm, setShowSvcForm] = useState(false);
 
   const [mName, setMName] = useState('');
   const [mType, setMType] = useState<MeterType>('electricity');
   const [mTariff, setMTariff] = useState('');
+  const [showMeterForm, setShowMeterForm] = useState(false);
 
   // Подача показания
   const [readMeterId, setReadMeterId] = useState('');
@@ -72,6 +74,7 @@ function PropertyDetailInner() {
       await createService(id, { name: svcName, price: Number(svcPrice), serviceType: svcType });
       setSvcName('');
       setSvcPrice('');
+      setShowSvcForm(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка');
@@ -87,6 +90,7 @@ function PropertyDetailInner() {
       await createMeter(id, { meterType: mType, name: mName, tariff: Number(mTariff) });
       setMName('');
       setMTariff('');
+      setShowMeterForm(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка');
@@ -133,9 +137,7 @@ function PropertyDetailInner() {
             </div>
 
             <h2>Услуги</h2>
-            {services.length === 0 ? (
-              <div className="empty">Услуг пока нет.</div>
-            ) : (
+            {services.length > 0 && (
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -159,35 +161,50 @@ function PropertyDetailInner() {
                 </table>
               </div>
             )}
-            <form
-              className="card"
-              onSubmit={onAddService}
-              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
-            >
-              <div className="field" style={{ margin: 0 }}>
-                <label>Услуга</label>
-                <input value={svcName} onChange={(e) => setSvcName(e.target.value)} required />
+            {!showSvcForm ? (
+              <div className="add-tile-wrap">
+                <span className="add-tile-label">Услуги</span>
+                <button
+                  type="button"
+                  className="add-tile"
+                  onClick={() => setShowSvcForm(true)}
+                  aria-label="Добавить услугу"
+                >
+                  +
+                </button>
               </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Стоимость, ₽</label>
-                <input type="number" value={svcPrice} onChange={(e) => setSvcPrice(e.target.value)} required />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Тип</label>
-                <select value={svcType} onChange={(e) => setSvcType(e.target.value as ServiceType)}>
-                  <option value="monthly">Ежемесячная</option>
-                  <option value="one_time">Разовая</option>
-                </select>
-              </div>
-              <button type="submit" disabled={busy} className="secondary">
-                Добавить услугу
-              </button>
-            </form>
+            ) : (
+              <form
+                className="card"
+                onSubmit={onAddService}
+                style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
+              >
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Услуга</label>
+                  <input value={svcName} onChange={(e) => setSvcName(e.target.value)} required />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Стоимость, ₽</label>
+                  <input type="number" value={svcPrice} onChange={(e) => setSvcPrice(e.target.value)} required />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Тип</label>
+                  <select value={svcType} onChange={(e) => setSvcType(e.target.value as ServiceType)}>
+                    <option value="monthly">Ежемесячная</option>
+                    <option value="one_time">Разовая</option>
+                  </select>
+                </div>
+                <button type="submit" disabled={busy}>
+                  Добавить услугу
+                </button>
+                <button type="button" className="secondary" onClick={() => setShowSvcForm(false)}>
+                  Отмена
+                </button>
+              </form>
+            )}
 
             <h2>Счётчики</h2>
-            {meters.length === 0 ? (
-              <div className="empty">Счётчиков пока нет.</div>
-            ) : (
+            {meters.length > 0 && (
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -211,32 +228,49 @@ function PropertyDetailInner() {
                 </table>
               </div>
             )}
-            <form
-              className="card"
-              onSubmit={onAddMeter}
-              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
-            >
-              <div className="field" style={{ margin: 0 }}>
-                <label>Тип</label>
-                <select value={mType} onChange={(e) => setMType(e.target.value as MeterType)}>
-                  <option value="electricity">Электричество</option>
-                  <option value="water">Вода</option>
-                  <option value="gas">Газ</option>
-                  <option value="heating">Отопление</option>
-                </select>
+            {!showMeterForm ? (
+              <div className="add-tile-wrap">
+                <span className="add-tile-label">Счётчики</span>
+                <button
+                  type="button"
+                  className="add-tile"
+                  onClick={() => setShowMeterForm(true)}
+                  aria-label="Добавить счётчик"
+                >
+                  +
+                </button>
               </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Название</label>
-                <input placeholder="напр. ГВС" value={mName} onChange={(e) => setMName(e.target.value)} required />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label>Тариф</label>
-                <input type="number" step="0.0001" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
-              </div>
-              <button type="submit" disabled={busy} className="secondary">
-                Добавить счётчик
-              </button>
-            </form>
+            ) : (
+              <form
+                className="card"
+                onSubmit={onAddMeter}
+                style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
+              >
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Тип</label>
+                  <select value={mType} onChange={(e) => setMType(e.target.value as MeterType)}>
+                    <option value="electricity">Электричество</option>
+                    <option value="water">Вода</option>
+                    <option value="gas">Газ</option>
+                    <option value="heating">Отопление</option>
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Название</label>
+                  <input placeholder="напр. ГВС" value={mName} onChange={(e) => setMName(e.target.value)} required />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Тариф</label>
+                  <input type="number" step="0.0001" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
+                </div>
+                <button type="submit" disabled={busy}>
+                  Добавить счётчик
+                </button>
+                <button type="button" className="secondary" onClick={() => setShowMeterForm(false)}>
+                  Отмена
+                </button>
+              </form>
+            )}
 
             {meters.length > 0 && (
               <>

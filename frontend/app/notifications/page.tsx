@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { EmptyState, Icon, List, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { listNotifications, markRead, Notification } from '@/lib/notifications';
 
 function NotificationsInner() {
   const [items, setItems] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -16,6 +18,8 @@ function NotificationsInner() {
       setItems(await listNotifications());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -36,44 +40,37 @@ function NotificationsInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Уведомления</h1>
+        <PageHeader title="Уведомления" subtitle="События по вашим договорам" />
         {error && <div className="error">{error}</div>}
-        {items.length === 0 ? (
-          <div className="empty">Уведомлений нет.</div>
+
+        {loading ? (
+          <p className="muted">Загрузка…</p>
+        ) : items.length === 0 ? (
+          <EmptyState icon="bell" title="Уведомлений нет" text="Здесь появятся важные события: оплаты, показания, статусы договоров." />
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Уведомление</th>
-                  <th>Дата</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((n) => (
-                  <tr key={n.id} style={{ opacity: n.readAt ? 0.55 : 1 }}>
-                    <td>
-                      <strong>{n.title}</strong>
-                      <div className="muted">{n.body}</div>
-                    </td>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>
-                      {n.createdAt.slice(0, 16).replace('T', ' ')}
-                    </td>
-                    <td>
-                      {n.readAt ? (
-                        <span className="pill">прочитано</span>
-                      ) : (
-                        <button className="secondary" onClick={() => onRead(n.id)}>
-                          Прочитано
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <List>
+            {items.map((n) => (
+              <div
+                key={n.id}
+                className="row"
+                style={{ cursor: n.readAt ? 'default' : 'pointer', opacity: n.readAt ? 0.6 : 1 }}
+                onClick={() => !n.readAt && onRead(n.id)}
+              >
+                <span className={`lead ${n.readAt ? '' : 'warm'}`}>
+                  <Icon name="bell" />
+                </span>
+                <span className="body">
+                  <span className="t">{n.title}</span>
+                  <span className="s" style={{ whiteSpace: 'normal' }}>
+                    {n.body}
+                  </span>
+                </span>
+                <span className="trail" style={{ fontSize: 'var(--text-xs)' }}>
+                  {n.createdAt.slice(5, 16).replace('T', ' ')}
+                </span>
+              </div>
+            ))}
+          </List>
         )}
       </div>
     </>

@@ -1,19 +1,25 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import {
+  EmptyState,
+  Fab,
+  List,
+  PageHeader,
+  Row,
+  Section,
+  Segmented,
+  Sheet,
+} from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listProperties, Property } from '@/lib/properties';
-import {
-  createLease,
-  Lease,
-  listLeases,
-  STATUS_LABEL,
-} from '@/lib/leases';
+import { createLease, Lease, listLeases, STATUS_LABEL } from '@/lib/leases';
+
+type Filter = 'all' | 'owner' | 'tenant';
 
 function LeasesInner() {
   const { user } = useAuth();
@@ -22,6 +28,8 @@ function LeasesInner() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [propertyId, setPropertyId] = useState('');
@@ -45,7 +53,6 @@ function LeasesInner() {
     } finally {
       setLoading(false);
     }
-    // propertyId намеренно не в зависимостях — только инициализация
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -53,12 +60,23 @@ function LeasesInner() {
     void load();
   }, [load]);
 
+  const addr = useMemo(
+    () => Object.fromEntries(properties.map((p) => [p.id, p.address])),
+    [properties],
+  );
+
+  const shown = leases.filter((l) => {
+    if (filter === 'owner') return l.tenantId !== user?.id;
+    if (filter === 'tenant') return l.tenantId === user?.id;
+    return true;
+  });
+
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await createLease(propertyId, {
+      const l = await createLease(propertyId, {
         startDate,
         endDate,
         rentAmount: Number(rentAmount),
@@ -66,10 +84,8 @@ function LeasesInner() {
         paymentDay: Number(paymentDay),
         penaltyRatePercentPerDay: Number(penalty),
       });
-      setStartDate('');
-      setEndDate('');
-      setRentAmount('');
-      await load();
+      setShowForm(false);
+      router.push(`/leases/${l.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка создания');
     } finally {
@@ -81,21 +97,73 @@ function LeasesInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Договоры</h1>
+        <PageHeader
+          title="Договоры"
+          subtitle="Аренда, где вы собственник или арендатор"
+          action={
+            properties.length > 0 ? (
+              <button className="secondary" onClick={() => setShowForm(true)}>
+                + Договор
+              </button>
+            ) : undefined
+          }
+        />
 
-        {properties.length === 0 ? (
-          <p className="muted">
-            Сначала добавьте <Link href="/properties">объект</Link>.
-          </p>
+        {error && <div className="error">{error}</div>}
+
+        <Segmented<Filter>
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'Все' },
+            { value: 'owner', label: 'Я собственник' },
+            { value: 'tenant', label: 'Я арендатор' },
+          ]}
+        />
+
+        {loading ? (
+          <List>
+            <Row title={<span className="skeleton" style={{ display: 'inline-block', width: 170, height: 14 }} />} chevron={false} />
+          </List>
+        ) : properties.length === 0 && leases.length === 0 ? (
+          <EmptyState
+            icon="doc"
+            title="Договоров пока нет"
+            text="Сначала добавьте объект — затем оформите договор аренды."
+            action={<button onClick={() => router.push('/properties')}>Добавить объект</button>}
+          />
+        ) : shown.length === 0 ? (
+          <EmptyState icon="doc" title="Ничего не найдено" text="В этой категории договоров нет." />
         ) : (
-          <form className="card" onSubmit={onCreate}>
-            <h3>Новый договор (черновик)</h3>
+          <List>
+            {shown.map((l) => (
+              <Row
+                key={l.id}
+                icon="doc"
+                title={addr[l.propertyId] ?? `Договор ${l.id.slice(0, 8)}`}
+                subtitle={`${l.tenantId === user?.id ? 'Аренда' : 'Сдаю'} · ${l.rentAmount} ₽/мес`}
+                trail={
+                  <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
+                    {STATUS_LABEL[l.status]}
+                  </span>
+                }
+                href={`/leases/${l.id}`}
+              />
+            ))}
+          </List>
+        )}
+      </div>
+
+      {properties.length > 0 && (
+        <Fab onClick={() => setShowForm(true)} label="Новый договор" />
+      )}
+
+      {showForm && (
+        <Sheet title="Новый договор" onClose={() => setShowForm(false)}>
+          <form onSubmit={onCreate}>
             <div className="field">
               <label>Объект</label>
-              <select
-                value={propertyId}
-                onChange={(e) => setPropertyId(e.target.value)}
-              >
+              <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.address}
@@ -103,113 +171,46 @@ function LeasesInner() {
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label>Дата начала</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label>Дата окончания</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                required
-              />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Начало</label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Окончание</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+              </div>
             </div>
             <div className="field">
               <label>Аренда, ₽/мес</label>
-              <input
-                type="number"
-                value={rentAmount}
-                onChange={(e) => setRentAmount(e.target.value)}
-                min={0}
-                required
-              />
+              <input type="number" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} required />
             </div>
-            <div className="field">
-              <label>Задаток, ₽</label>
-              <input
-                type="number"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                min={0}
-              />
-            </div>
-            <div className="field">
-              <label>День оплаты (1–28)</label>
-              <input
-                type="number"
-                value={paymentDay}
-                onChange={(e) => setPaymentDay(e.target.value)}
-                min={1}
-                max={28}
-              />
-            </div>
-            <div className="field">
-              <label>Пеня, %/день</label>
-              <input
-                type="number"
-                step="0.01"
-                value={penalty}
-                onChange={(e) => setPenalty(e.target.value)}
-                min={0}
-              />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Задаток, ₽</label>
+                <input type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>День оплаты</label>
+                <input type="number" value={paymentDay} onChange={(e) => setPaymentDay(e.target.value)} min={1} max={28} />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Пеня, %/день</label>
+                <input type="number" step="0.01" value={penalty} onChange={(e) => setPenalty(e.target.value)} min={0} />
+              </div>
             </div>
             {error && <div className="error">{error}</div>}
-            <button type="submit" disabled={busy}>
-              {busy ? 'Сохранение…' : 'Создать черновик'}
-            </button>
+            <div className="sheet-actions">
+              <button type="button" className="secondary" onClick={() => setShowForm(false)}>
+                Отмена
+              </button>
+              <button type="submit" disabled={busy}>
+                {busy ? 'Создание…' : 'Создать черновик'}
+              </button>
+            </div>
           </form>
-        )}
-
-        {loading ? (
-          <p className="muted">Загрузка…</p>
-        ) : leases.length === 0 ? (
-          <div className="empty">Договоров пока нет.</div>
-        ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Договор</th>
-                  <th>Роль</th>
-                  <th>Статус</th>
-                  <th className="num">Аренда, ₽/мес</th>
-                  <th>Срок</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leases.map((l) => (
-                  <tr
-                    key={l.id}
-                    className="row-link"
-                    onClick={() => router.push(`/leases/${l.id}`)}
-                  >
-                    <td>
-                      <strong>{l.id.slice(0, 8)}</strong>
-                    </td>
-                    <td>{l.tenantId === user?.id ? 'Арендатор' : 'Собственник'}</td>
-                    <td>
-                      <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
-                        {STATUS_LABEL[l.status]}
-                      </span>
-                    </td>
-                    <td className="num">{l.rentAmount}</td>
-                    <td className="muted">
-                      {l.startDate.slice(0, 10)} — {l.endDate.slice(0, 10)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </Sheet>
+      )}
     </>
   );
 }

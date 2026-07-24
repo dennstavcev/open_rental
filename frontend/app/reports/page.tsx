@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
+import { PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { getSummary, LandlordSummary } from '@/lib/reports';
 
@@ -27,7 +28,7 @@ function ReportsInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Отчёты</h1>
+        <PageHeader title="Отчёты" subtitle="Доходы, задолженность и сроки договоров" />
         {error && <div className="error">{error}</div>}
         {!data ? (
           <p className="muted">Загрузка…</p>

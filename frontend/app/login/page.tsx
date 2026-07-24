@@ -29,37 +29,39 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="auth-wrap">
-      <div className="brand">OPENRENT</div>
-      <div className="card">
-      <h1 style={{ textAlign: 'center' }}>Вход</h1>
-      <form onSubmit={onSubmit}>
-        <div className="field">
-          <label>Email</label>
+    <div className="photo-backdrop">
+      <div className="backdrop-scrim" />
+      <div className="backdrop-content">
+        <div className="auth-topbar">
+          <Link href="/" aria-label="Назад">←</Link>
+        </div>
+        <form className="auth-form" onSubmit={onSubmit}>
+          <h1>Войдите в личный кабинет</h1>
           <input
             type="email"
+            placeholder="Почта"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
-        <div className="field">
-          <label>Пароль</label>
           <input
             type="password"
+            placeholder="Пароль"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </div>
-        {error && <div className="error">{error}</div>}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Вход…' : 'Войти'}
-        </button>
-      </form>
-      <p className="muted" style={{ marginTop: 12 }}>
-        Нет аккаунта? <Link href="/register">Зарегистрироваться</Link>
-      </p>
+          {error && <div className="error">{error}</div>}
+          <button type="submit" disabled={busy}>
+            {busy ? 'Вход…' : 'Войти'}
+          </button>
+          <div className="auth-divider">или</div>
+          <Link href="/register">
+            <button type="button" className="secondary" style={{ width: '100%' }}>
+              Регистрация
+            </button>
+          </Link>
+        </form>
       </div>
     </div>
   );
