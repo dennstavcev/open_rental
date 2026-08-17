@@ -101,6 +101,13 @@
   --blur-frost: 18px;
   --shadow-card: 0 8px 30px rgba(30, 20, 10, 0.12);
   --shadow-btn: 0 2px 10px rgba(30, 20, 10, 0.12);
+  /* Liquid-glass surfaces: bright translucent rim (catches light on a
+     curved edge) instead of a flat dark border, plus an inset top
+     highlight layered under the usual drop shadow for depth. */
+  --border-glass: 1px solid rgba(255, 255, 255, 0.45);
+  --shadow-glass: 0 8px 30px rgba(30, 20, 10, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
   --duration-base: 200ms;
@@ -339,13 +346,13 @@ h3 {
 /* ===== Cards / stats ===== */
 .card {
   background: var(--surface-card);
-  border: 1px solid var(--border-default);
+  border: var(--border-glass);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   margin-bottom: var(--space-4);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-frost));
+  -webkit-backdrop-filter: blur(var(--blur-frost));
 }
 .card.link:hover {
   border-color: var(--accent-primary);
@@ -358,12 +365,12 @@ h3 {
 }
 .stat {
   background: var(--surface-card);
-  border: 1px solid var(--border-default);
+  border: var(--border-glass);
   border-radius: var(--radius-lg);
   padding: 15px;
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-frost));
+  -webkit-backdrop-filter: blur(var(--blur-frost));
 }
 .stat .num {
   font-size: var(--text-2xl);
@@ -378,12 +385,12 @@ h3 {
 /* ===== Tables ===== */
 .table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--border-default);
+  border: var(--border-glass);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-glass);
   background: var(--surface-card);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(var(--blur-frost));
+  -webkit-backdrop-filter: blur(var(--blur-frost));
   margin-bottom: var(--space-4);
   -webkit-overflow-scrolling: touch;
 }
@@ -520,6 +527,7 @@ button:disabled {
 .pill {
   display: inline-block;
   padding: 2px 10px;
+  border: 1px solid rgba(60, 40, 20, 0.1);
   border-radius: var(--radius-pill);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
@@ -528,10 +536,12 @@ button:disabled {
 }
 .pill.ok {
   background: var(--success-weak);
+  border-color: color-mix(in srgb, var(--success) 25%, transparent);
   color: var(--success);
 }
 .pill.warn {
   background: var(--warn-weak);
+  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
   color: var(--warn);
 }
 
@@ -541,6 +551,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -553,17 +564,41 @@ button:disabled {
 }
 .status-banner.due {
   background: var(--danger-weak);
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
   color: var(--danger);
 }
 .status-banner.done {
   background: var(--success-weak);
+  border-color: color-mix(in srgb, var(--success) 20%, transparent);
   color: var(--success);
+}
+
+/* Key/value info block inside a card (meter card, ADR-0015) — a
+   divider separates it from the header above, giving the card a clear
+   head → facts → status → actions rhythm instead of one flat stack. */
+.kv-block {
+  margin: 14px 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kv-block .kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--text-sm);
+}
+.kv-block .kv .k {
+  color: var(--text-muted);
 }
 
 /* Meter type badge — colored circle behind the meter icon */
 .meter-badge {
   width: 34px;
   height: 34px;
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
@@ -576,15 +611,18 @@ button:disabled {
 }
 .meter-badge.electricity {
   background: var(--warn-weak);
+  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
   color: var(--warn);
 }
 .meter-badge.water {
   background: rgba(124, 119, 97, 0.14);
+  border-color: rgba(124, 119, 97, 0.28);
   color: var(--fog-500);
 }
 .meter-badge.gas,
 .meter-badge.heating {
   background: rgba(192, 76, 32, 0.12);
+  border-color: color-mix(in srgb, var(--terracotta-500) 25%, transparent);
   color: var(--terracotta-500);
 }
 
@@ -976,11 +1014,11 @@ button:disabled {
 /* List — group of app rows inside one glass surface */
 .list {
   background: var(--surface-card);
-  border: 1px solid var(--border-default);
+  border: var(--border-glass);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-glass);
+  backdrop-filter: blur(var(--blur-frost));
+  -webkit-backdrop-filter: blur(var(--blur-frost));
   overflow: hidden;
   margin-bottom: var(--space-4);
 }
@@ -1158,13 +1196,16 @@ button:disabled {
 }
 .sheet {
   background: var(--surface-card-strong);
+  border: var(--border-glass);
+  border-bottom: none;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   width: 100%;
   max-width: 520px;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 18px 20px calc(22px + env(safe-area-inset-bottom));
-  box-shadow: 0 -10px 44px rgba(30, 20, 10, 0.26);
+  box-shadow: 0 -10px 44px rgba(30, 20, 10, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
   max-height: 92vh;
   overflow-y: auto;
   animation: sheet-up var(--duration-base) var(--ease-standard);

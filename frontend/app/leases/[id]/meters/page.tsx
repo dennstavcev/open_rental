@@ -96,15 +96,15 @@ function MetersHubInner() {
                 </div>
               </div>
 
-              <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="kv-block">
                 {m.calibrationDueDate && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
-                    <span className="muted">Поверка счётчика</span>
+                  <div className="kv">
+                    <span className="k">Поверка счётчика</span>
                     <span>{m.calibrationDueDate.slice(0, 10)}</span>
                   </div>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
-                  <span className="muted">Текущий период</span>
+                <div className="kv">
+                  <span className="k">Текущий период</span>
                   <span>{periodStart} — {periodEnd}</span>
                 </div>
               </div>
