@@ -26,6 +26,10 @@ const PATHS: Record<string, ReactNode> = {
   clock: <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 8v4l3 2" />,
   inbox: <path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  droplet: <path d="M12 3c4 5 7 8.5 7 12a7 7 0 1 1-14 0c0-3.5 3-7 7-12z" />,
+  bolt: <path d="M13 3 4 14h6l-1 7 9-11h-6l1-7z" />,
+  flame: <path d="M12 3c1 3-3 4-3 7a3 3 0 0 0 6 0c1 1.5 1 3 1 4a6 6 0 1 1-9-5c1-2 2-3 5-6z" />,
+  info: <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 8h.01" />,
 };
 
 export function Icon({ name }: { name: string }) {
@@ -213,6 +217,7 @@ export function LeaseTabs({ id }: { id: string }) {
   const tabs = [
     { href: `/leases/${id}`, label: 'Обзор', exact: true },
     { href: `/leases/${id}/bills`, label: 'Счета' },
+    { href: `/leases/${id}/meters`, label: 'Показания' },
     { href: `/leases/${id}/chat`, label: 'Чат' },
     { href: `/leases/${id}/requests`, label: 'Заявки' },
   ];

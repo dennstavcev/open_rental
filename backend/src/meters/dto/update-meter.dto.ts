@@ -1,6 +1,7 @@
 import { MeterType } from '@prisma/client';
 import {
   IsBoolean,
+  IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -35,4 +36,9 @@ export class UpdateMeterDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  // Дата очередной метрологической поверки — информационно (ADR-0015).
+  @IsOptional()
+  @IsDateString()
+  calibrationDueDate?: string;
 }

@@ -535,6 +535,59 @@ button:disabled {
   color: var(--warn);
 }
 
+/* Status banner — meter reading due/submitted (ADR-0015) */
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  margin: 10px 0;
+}
+.status-banner .icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.status-banner.due {
+  background: var(--danger-weak);
+  color: var(--danger);
+}
+.status-banner.done {
+  background: var(--success-weak);
+  color: var(--success);
+}
+
+/* Meter type badge — colored circle behind the meter icon */
+.meter-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.meter-badge .icon {
+  width: 18px;
+  height: 18px;
+}
+.meter-badge.electricity {
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+.meter-badge.water {
+  background: rgba(124, 119, 97, 0.14);
+  color: var(--fog-500);
+}
+.meter-badge.gas,
+.meter-badge.heating {
+  background: rgba(192, 76, 32, 0.12);
+  color: var(--terracotta-500);
+}
+
 /* ===== Photo backdrop (auth / onboarding — see docs/DESIGN_SYSTEM.md, "Фото-фон") =====
    Wrapping a screen in .photo-backdrop switches the contextual tokens that
    .card / input / button / .muted etc. read from, so the same component

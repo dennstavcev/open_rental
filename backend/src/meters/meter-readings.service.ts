@@ -129,6 +129,31 @@ export class MeterReadingsService {
     return { reading, consumption, cost, warning };
   }
 
+  // История показаний счётчика (ADR-0015) — доступна landlord/tenant
+  // текущего активного договора объекта; scoped на этот договор (не
+  // «протекает» история прошлых арендаторов того же объекта).
+  async listForMeter(
+    userId: string,
+    meterId: string,
+  ): Promise<MeterReading[]> {
+    const meter = await this.prisma.meter.findUnique({
+      where: { id: meterId },
+    });
+    if (!meter) {
+      throw new NotFoundException('Счётчик не найден');
+    }
+    const lease = await this.prisma.lease.findFirst({
+      where: { propertyId: meter.propertyId, status: LeaseStatus.active },
+    });
+    if (!lease || (lease.landlordId !== userId && lease.tenantId !== userId)) {
+      throw new NotFoundException('Счётчик не найден');
+    }
+    return this.prisma.meterReading.findMany({
+      where: { meterId, leaseId: lease.id },
+      orderBy: { readingDate: 'desc' },
+    });
+  }
+
   // Предупреждение, если расход превышает средний по счётчику более чем в 10×.
   private consumptionWarning(
     prior: MeterReading[],

@@ -1,5 +1,6 @@
 import { MeterType } from '@prisma/client';
 import {
+  IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -34,4 +35,9 @@ export class CreateMeterDto {
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   initialReading!: number;
+
+  // Дата очередной метрологической поверки — информационно (ADR-0015).
+  @IsOptional()
+  @IsDateString()
+  calibrationDueDate?: string;
 }

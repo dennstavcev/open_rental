@@ -19,9 +19,14 @@ export interface Meter {
   tariff: string;
   isActive: boolean;
   initialReading: string;
+  // Дата метрологической поверки — информационно (ADR-0015).
+  calibrationDueDate: string | null;
   // Последнее показание или initialReading, если показаний ещё не было
   // (ADR-0014) — вычисляется бэкендом, не хранится отдельно.
   lastReadingValue: number;
+  // Подано ли показание в текущем расчётном периоде — только у
+  // счётчиков, полученных через listMetersForLease (ADR-0015).
+  currentPeriodSubmitted?: boolean;
 }
 
 export interface ReadingResult {
@@ -29,6 +34,13 @@ export interface ReadingResult {
   consumption: number;
   cost: number;
   warning: string | null;
+}
+
+export interface MeterReading {
+  id: string;
+  value: string;
+  readingDate: string;
+  createdAt: string;
 }
 
 export const SERVICE_TYPE_LABEL: Record<ServiceType, string> = {
@@ -85,6 +97,7 @@ export function createMeter(
     serialNumber?: string;
     tariff: number;
     initialReading: number;
+    calibrationDueDate?: string;
   },
 ): Promise<Meter> {
   return apiFetch(`/properties/${propertyId}/meters`, {
@@ -102,12 +115,30 @@ export function updateMeter(
     serialNumber: string;
     tariff: number;
     isActive: boolean;
+    calibrationDueDate: string;
   }>,
 ): Promise<Meter> {
   return apiFetch(`/properties/${propertyId}/meters/${meterId}`, {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
+}
+
+export interface LeaseMetersView {
+  periodStart: string;
+  periodEnd: string;
+  meters: Meter[];
+}
+
+// Счётчики хаба аренды (ADR-0015) — landlord ИЛИ tenant договора, в
+// отличие от listMeters (landlord-only, карточка объекта). Границы
+// текущего периода приходят с бэкенда — не дублируем computePeriod.
+export function listMetersForLease(leaseId: string): Promise<LeaseMetersView> {
+  return apiFetch<LeaseMetersView>(`/leases/${leaseId}/meters`);
+}
+
+export function listReadingHistory(meterId: string): Promise<MeterReading[]> {
+  return apiFetch<MeterReading[]>(`/meters/${meterId}/readings`);
 }
 
 export function submitReading(

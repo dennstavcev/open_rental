@@ -55,12 +55,14 @@ function PropertyDetailInner() {
   const [mSerialNumber, setMSerialNumber] = useState('');
   const [mTariff, setMTariff] = useState(String(METER_DEFAULT_TARIFF.electricity));
   const [mInitialReading, setMInitialReading] = useState('');
+  const [mCalibrationDueDate, setMCalibrationDueDate] = useState('');
 
   const [editMeterId, setEditMeterId] = useState('');
   const [eName, setEName] = useState('');
   const [eSerialNumber, setESerialNumber] = useState('');
   const [eTariff, setETariff] = useState('');
   const [eActive, setEActive] = useState(true);
+  const [eCalibrationDueDate, setECalibrationDueDate] = useState('');
 
   const [readMeterId, setReadMeterId] = useState('');
   const [readValue, setReadValue] = useState('');
@@ -131,11 +133,13 @@ function PropertyDetailInner() {
         serialNumber: mSerialNumber || undefined,
         tariff: Number(mTariff),
         initialReading: Number(mInitialReading),
+        calibrationDueDate: mCalibrationDueDate || undefined,
       });
       setMName('');
       setMSerialNumber('');
       setMTariff(String(METER_DEFAULT_TARIFF[mType]));
       setMInitialReading('');
+      setMCalibrationDueDate('');
       closeSheet();
       await load();
     } catch (err) {
@@ -156,6 +160,7 @@ function PropertyDetailInner() {
     setESerialNumber(m.serialNumber ?? '');
     setETariff(m.tariff);
     setEActive(m.isActive);
+    setECalibrationDueDate(m.calibrationDueDate ? m.calibrationDueDate.slice(0, 10) : '');
     setSheet('editMeter');
   }
 
@@ -168,6 +173,7 @@ function PropertyDetailInner() {
         serialNumber: eSerialNumber || undefined,
         tariff: Number(eTariff),
         isActive: eActive,
+        calibrationDueDate: eCalibrationDueDate || undefined,
       });
       closeSheet();
       await load();
@@ -442,6 +448,10 @@ function PropertyDetailInner() {
             <p className="muted">
               Значение на приборе на момент постановки на учёт — от него считается расход первого показания.
             </p>
+            <div className="field">
+              <label>Дата поверки (необязательно)</label>
+              <input type="date" value={mCalibrationDueDate} onChange={(e) => setMCalibrationDueDate(e.target.value)} />
+            </div>
             {error && <div className="error">{error}</div>}
             <div className="sheet-actions">
               <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
@@ -482,6 +492,10 @@ function PropertyDetailInner() {
             {!eActive && (
               <p className="muted">Отключённый счётчик не будет принимать новые показания.</p>
             )}
+            <div className="field">
+              <label>Дата поверки (необязательно)</label>
+              <input type="date" value={eCalibrationDueDate} onChange={(e) => setECalibrationDueDate(e.target.value)} />
+            </div>
             {error && <div className="error">{error}</div>}
             <div className="sheet-actions">
               <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>

@@ -421,6 +421,9 @@ model Meter {
   // Значение на момент постановки на учёт — база для расчёта расхода
   // первого показания вместо 0 (ADR-0014). Неизменяемо после создания.
   initialReading Decimal @db.Decimal(12, 3)
+  // Дата очередной метрологической поверки — информационно (ADR-0015),
+  // подача показаний по ней не блокируется.
+  calibrationDueDate DateTime?
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

@@ -141,4 +141,26 @@ describe('MeterReadingsService', () => {
       service.create('stranger', 'm1', 100, photo),
     ).rejects.toThrow();
   });
+
+  it('listForMeter отдаёт историю landlord/tenant, scoped на текущий договор (ADR-0015)', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter());
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]);
+
+    const result = await service.listForMeter('tenant1', 'm1');
+
+    expect(result).toHaveLength(2);
+    expect(prisma.meterReading.findMany.mock.calls[0][0].where).toEqual({
+      meterId: 'm1',
+      leaseId: 'l1',
+    });
+  });
+
+  it('listForMeter: не сторона договора → 404', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter());
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    await expect(
+      service.listForMeter('stranger', 'm1'),
+    ).rejects.toThrow();
+  });
 });
