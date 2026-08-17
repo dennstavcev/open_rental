@@ -108,6 +108,18 @@ export function uploadSignedScan(
   });
 }
 
+// Дата окончания по умолчанию: +11 месяцев от даты начала (типовой срок
+// аренды в РФ — до года, чтобы не требовать регистрации договора).
+export function addElevenMonths(startDate: string): string {
+  const [year, month, day] = startDate.split('-').map(Number);
+  const totalMonths = year * 12 + (month - 1) + 11;
+  const y = Math.floor(totalMonths / 12);
+  const m = totalMonths % 12;
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const d = Math.min(day, daysInMonth);
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 export const STATUS_LABEL: Record<LeaseStatus, string> = {
   draft: 'Черновик',
   sent: 'Отправлен',

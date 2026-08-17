@@ -17,7 +17,7 @@ import {
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listProperties, Property } from '@/lib/properties';
-import { createLease, Lease, listLeases, STATUS_LABEL } from '@/lib/leases';
+import { addElevenMonths, createLease, Lease, listLeases, STATUS_LABEL } from '@/lib/leases';
 
 type Filter = 'all' | 'owner' | 'tenant';
 
@@ -174,7 +174,15 @@ function LeasesInner() {
             <div style={{ display: 'flex', gap: 10 }}>
               <div className="field" style={{ flex: 1 }}>
                 <label>Начало</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setEndDate(addElevenMonths(e.target.value));
+                  }}
+                  required
+                />
               </div>
               <div className="field" style={{ flex: 1 }}>
                 <label>Окончание</label>

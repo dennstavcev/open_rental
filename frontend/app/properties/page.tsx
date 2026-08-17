@@ -137,7 +137,7 @@ function PropertiesInner() {
               </div>
               <div className="field" style={{ flex: 1 }}>
                 <label>Площадь, м²</label>
-                <input type="number" value={area} onChange={(e) => setArea(e.target.value)} min={0} placeholder="—" />
+                <input type="number" step="0.01" value={area} onChange={(e) => setArea(e.target.value)} min={0} placeholder="—" />
               </div>
             </div>
             {error && <div className="error">{error}</div>}

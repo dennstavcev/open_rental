@@ -104,8 +104,9 @@ function LeaseDetailInner() {
     <>
       <TopBar />
       <div className="container">
+        {error && <div className="error">{error}</div>}
         {!lease ? (
-          <p className="muted">Загрузка…</p>
+          error ? null : <p className="muted">Загрузка…</p>
         ) : (
           <>
             <PageHeader
@@ -117,9 +118,14 @@ function LeaseDetailInner() {
                 </span>
               }
             />
-            {error && <div className="error">{error}</div>}
 
             {lease.status === 'active' && lease.tenantId && <LeaseTabs id={id} />}
+
+            <div style={{ textAlign: 'right', margin: '-4px 0 8px' }}>
+              <a href={`/properties/${lease.propertyId}`} className="muted">
+                Объект →
+              </a>
+            </div>
 
             <div className="card">
               <div className="facts">

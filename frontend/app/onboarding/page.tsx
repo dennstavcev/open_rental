@@ -6,11 +6,12 @@ import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
 import { ApiError } from '@/lib/api';
 import { createProperty } from '@/lib/properties';
-import { createLease, sendLease } from '@/lib/leases';
+import { addElevenMonths, createLease, sendLease } from '@/lib/leases';
 import {
   createMeter,
   createService,
   Meter,
+  METER_DEFAULT_TARIFF,
   MeterType,
   Service,
   ServiceType,
@@ -158,7 +159,7 @@ function StepProperty({
       </div>
       <div className="field">
         <label>Площадь, кв.м (необязательно)</label>
-        <input type="number" value={area} onChange={(e) => setArea(e.target.value)} min={0} />
+        <input type="number" step="0.01" value={area} onChange={(e) => setArea(e.target.value)} min={0} />
       </div>
       <button type="submit" disabled={busy}>
         Далее
@@ -187,7 +188,8 @@ function StepCatalog({
 
   const [mName, setMName] = useState('');
   const [mType, setMType] = useState<MeterType>('electricity');
-  const [mTariff, setMTariff] = useState('');
+  const [mTariff, setMTariff] = useState(String(METER_DEFAULT_TARIFF.electricity));
+  const [mInitialReading, setMInitialReading] = useState('');
 
   return (
     <div className="card">
@@ -237,15 +239,23 @@ function StepCatalog({
               meterType: mType,
               name: mName,
               tariff: Number(mTariff),
+              initialReading: Number(mInitialReading),
             });
             setMeters((x) => [...x, m]);
             setMName('');
-            setMTariff('');
+            setMInitialReading('');
           });
         }}
         style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0' }}
       >
-        <select value={mType} onChange={(e) => setMType(e.target.value as MeterType)}>
+        <select
+          value={mType}
+          onChange={(e) => {
+            const type = e.target.value as MeterType;
+            setMType(type);
+            setMTariff(String(METER_DEFAULT_TARIFF[type]));
+          }}
+        >
           <option value="electricity">Электричество</option>
           <option value="water">Вода</option>
           <option value="gas">Газ</option>
@@ -253,6 +263,15 @@ function StepCatalog({
         </select>
         <input placeholder="Название" value={mName} onChange={(e) => setMName(e.target.value)} required />
         <input type="number" step="0.0001" placeholder="Тариф" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
+        <input
+          type="number"
+          step="0.001"
+          min={0}
+          placeholder="Начальное показание"
+          value={mInitialReading}
+          onChange={(e) => setMInitialReading(e.target.value)}
+          required
+        />
         <button className="secondary" type="submit" disabled={busy}>
           + счётчик
         </button>
@@ -311,7 +330,15 @@ function StepLease({
       </p>
       <div className="field">
         <label>Дата начала</label>
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => {
+            setStartDate(e.target.value);
+            setEndDate(addElevenMonths(e.target.value));
+          }}
+          required
+        />
       </div>
       <div className="field">
         <label>Дата окончания</label>
