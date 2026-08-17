@@ -8,6 +8,7 @@ import { EmptyState, LeaseTabs, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
+import { usePolling } from '@/lib/usePolling';
 
 function ChatInner() {
   const { id } = useParams<{ id: string }>();
@@ -35,6 +36,7 @@ function ChatInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 15000);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });

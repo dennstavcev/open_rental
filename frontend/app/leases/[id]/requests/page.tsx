@@ -20,6 +20,8 @@ import {
   STATUS_LABEL,
   updateStatus,
 } from '@/lib/maintenance';
+import { formatMoney } from '@/lib/format';
+import { usePolling } from '@/lib/usePolling';
 
 function RequestCard({
   req,
@@ -79,7 +81,7 @@ function RequestCard({
 
       {req.settlementAmount && (
         <div className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
-          Урегулирование: <strong>{req.settlementAmount} ₽</strong> ·{' '}
+          Урегулирование: <strong>{formatMoney(req.settlementAmount)} ₽</strong> ·{' '}
           {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}
           {' — '}
           {req.settlementAppliedAt
@@ -143,6 +145,7 @@ function RequestsInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();

@@ -18,6 +18,8 @@ import {
   STATUS_LABEL,
   uploadSignedScan,
 } from '@/lib/leases';
+import { formatMoney } from '@/lib/format';
+import { usePolling } from '@/lib/usePolling';
 
 const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' };
 
@@ -55,6 +57,7 @@ function LeaseDetailInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   async function onSend(e: FormEvent) {
     e.preventDefault();
@@ -129,8 +132,8 @@ function LeaseDetailInner() {
 
             <div className="card">
               <div className="facts">
-                <div className="fact"><div className="k">АРЕНДА</div><div className="v">{lease.rentAmount} ₽/мес</div></div>
-                <div className="fact"><div className="k">ЗАДАТОК</div><div className="v">{lease.depositAmount} ₽</div></div>
+                <div className="fact"><div className="k">АРЕНДА</div><div className="v">{formatMoney(lease.rentAmount)} ₽/мес</div></div>
+                <div className="fact"><div className="k">ДЕПОЗИТ</div><div className="v">{formatMoney(lease.depositAmount)} ₽</div></div>
                 <div className="fact"><div className="k">ДЕНЬ ОПЛАТЫ</div><div className="v">{lease.paymentDay} числа</div></div>
                 <div className="fact"><div className="k">ПЕНЯ</div><div className="v">{lease.penaltyRatePercentPerDay}%/день</div></div>
                 <div className="fact"><div className="k">СРОК</div><div className="v">{lease.startDate.slice(0, 10)} — {lease.endDate.slice(0, 10)}</div></div>

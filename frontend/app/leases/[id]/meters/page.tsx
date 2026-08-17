@@ -7,6 +7,7 @@ import { TopBar } from '@/components/TopBar';
 import { EmptyState, Icon, LeaseTabs, PageHeader, Sheet } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { listMetersForLease, submitReading, Meter, METER_UNIT_LABEL } from '@/lib/catalog';
+import { usePolling } from '@/lib/usePolling';
 
 const METER_BADGE_ICON: Record<Meter['meterType'], string> = {
   electricity: 'bolt',
@@ -46,6 +47,7 @@ function MetersHubInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   function openReading(m: Meter) {
     setReadMeter(m);

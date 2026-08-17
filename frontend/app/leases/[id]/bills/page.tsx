@@ -18,6 +18,8 @@ import {
   PAYMENT_STATUS_LABEL,
   waivePenalty,
 } from '@/lib/billing';
+import { formatMoney } from '@/lib/format';
+import { usePolling } from '@/lib/usePolling';
 
 function BillsInner() {
   const { id } = useParams<{ id: string }>();
@@ -47,6 +49,7 @@ function BillsInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -100,7 +103,7 @@ function BillsInner() {
 
               <div className="money" style={{ margin: '12px 0 6px' }}>
                 <span className={`amount ${bill.paymentStatus !== 'paid' && bill.stage === 'final' ? 'due' : ''}`}>
-                  {totalDue.toLocaleString('ru')} ₽
+                  {formatMoney(totalDue)} ₽
                 </span>
                 <span className="muted">к оплате</span>
               </div>
@@ -109,13 +112,13 @@ function BillsInner() {
                 {bill.lineItems.map((li) => (
                   <div key={li.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', padding: '3px 0' }}>
                     <span className="muted">{li.title}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{li.amount} ₽</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(li.amount)} ₽</span>
                   </div>
                 ))}
                 {accruedPenalty > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', padding: '3px 0', color: 'var(--terracotta-500)' }}>
                     <span>Пеня{bill.penaltyWaived ? ' (прощена)' : ''}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{accruedPenalty} ₽</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(accruedPenalty)} ₽</span>
                   </div>
                 )}
               </div>

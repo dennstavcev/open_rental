@@ -17,6 +17,7 @@ import {
 import { listBills } from '@/lib/billing';
 import { listNotifications } from '@/lib/notifications';
 import { getSummary } from '@/lib/reports';
+import { formatMoney } from '@/lib/format';
 
 interface Action {
   key: string;
@@ -95,7 +96,7 @@ function DashboardInner() {
               acts.push({
                 key: `pay-${l.id}`,
                 icon: 'wallet',
-                title: `Оплатите ${fin.totalDue.toLocaleString('ru')} ₽`,
+                title: `Оплатите ${formatMoney(fin.totalDue)} ₽`,
                 subtitle: place,
                 href: `/leases/${l.id}/bills`,
               });
@@ -132,11 +133,11 @@ function DashboardInner() {
           <div className="greeting">Здравствуйте, {name}</div>
           <div className="metrics">
             <div className="metric">
-              <div className="v">{income.toLocaleString('ru')} ₽</div>
+              <div className="v">{formatMoney(income)} ₽</div>
               <div className="k">Получено всего</div>
             </div>
             <div className="metric">
-              <div className="v">{outstanding.toLocaleString('ru')} ₽</div>
+              <div className="v">{formatMoney(outstanding)} ₽</div>
               <div className="k">Ожидается к оплате</div>
             </div>
           </div>
@@ -194,7 +195,7 @@ function DashboardInner() {
                   key={l.id}
                   icon="doc"
                   title={addr[l.propertyId] ?? `Договор ${l.id.slice(0, 8)}`}
-                  subtitle={`${l.rentAmount} ₽/мес · с ${l.startDate.slice(0, 10)}`}
+                  subtitle={`${formatMoney(l.rentAmount)} ₽/мес · с ${l.startDate.slice(0, 10)}`}
                   trail={<span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>{STATUS_LABEL[l.status]}</span>}
                   href={`/leases/${l.id}`}
                 />

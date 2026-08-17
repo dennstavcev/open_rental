@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, ReactNode } from 'react';
+import { useCallback, useEffect, useState, ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { listNotifications } from '@/lib/notifications';
+import { usePolling } from '@/lib/usePolling';
 
 function Icon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
@@ -54,12 +55,17 @@ export function TopBar() {
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
 
-  useEffect(() => {
+  const refreshUnread = useCallback(() => {
     if (!user) return;
     listNotifications()
       .then((n) => setUnread(n.filter((x) => !x.readAt).length))
       .catch(() => setUnread(0));
-  }, [user, pathname]);
+  }, [user]);
+
+  useEffect(() => {
+    refreshUnread();
+  }, [refreshUnread, pathname]);
+  usePolling(refreshUnread, 30000);
 
   const active = (href: string) =>
     pathname === href || pathname.startsWith(href + '/');

@@ -11,6 +11,7 @@ import {
   Invitation,
   listInvitations,
 } from '@/lib/leases';
+import { usePolling } from '@/lib/usePolling';
 
 function InvitationsInner() {
   const [items, setItems] = useState<Invitation[]>([]);
@@ -32,6 +33,7 @@ function InvitationsInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   async function act(id: string, accept: boolean) {
     setBusyId(id);

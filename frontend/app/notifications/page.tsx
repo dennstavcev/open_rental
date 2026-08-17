@@ -6,6 +6,7 @@ import { TopBar } from '@/components/TopBar';
 import { EmptyState, Icon, List, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { listNotifications, markRead, Notification } from '@/lib/notifications';
+import { usePolling } from '@/lib/usePolling';
 
 function NotificationsInner() {
   const [items, setItems] = useState<Notification[]>([]);
@@ -26,6 +27,7 @@ function NotificationsInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  usePolling(load, 30000);
 
   async function onRead(id: string) {
     try {
