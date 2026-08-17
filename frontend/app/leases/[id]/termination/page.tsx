@@ -127,7 +127,7 @@ function TerminationInner() {
                         <input type="date" value={override[t.id] ?? ''} onChange={(e) => setOverride((s) => ({ ...s, [t.id]: e.target.value }))} />
                       </div>
                       <div className="field" style={{ flex: 1, minWidth: 140, margin: 0 }}>
-                        <label>Возврат задатка, ₽</label>
+                        <label>Возврат депозита, ₽</label>
                         <input type="number" value={deposit[t.id] ?? ''} onChange={(e) => setDeposit((s) => ({ ...s, [t.id]: e.target.value }))} />
                       </div>
                     </div>

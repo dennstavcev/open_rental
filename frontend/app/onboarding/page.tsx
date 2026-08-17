@@ -349,7 +349,7 @@ function StepLease({
         <input type="number" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} required />
       </div>
       <div className="field">
-        <label>Задаток, ₽</label>
+        <label>Депозит, ₽</label>
         <input type="number" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
       </div>
       <div className="field">

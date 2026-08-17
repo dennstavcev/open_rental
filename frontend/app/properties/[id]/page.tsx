@@ -25,6 +25,7 @@ import {
   submitReading,
   updateMeter,
 } from '@/lib/catalog';
+import { formatMoney } from '@/lib/format';
 
 type SheetKind = null | 'service' | 'meter' | 'reading' | 'editMeter' | 'lease';
 
@@ -205,7 +206,7 @@ function PropertyDetailInner() {
     try {
       const r = await submitReading(readMeterId, Number(readValue), photo);
       setReadMsg(
-        `Принято: расход ${r.consumption}, начислено ${r.cost} ₽` +
+        `Принято: расход ${r.consumption}, начислено ${formatMoney(r.cost)} ₽` +
           (r.warning ? ` — ${r.warning}` : ''),
       );
       setReadValue('');
@@ -273,7 +274,7 @@ function PropertyDetailInner() {
                     <Row
                       key={l.id}
                       icon="doc"
-                      title={`Договор · ${l.rentAmount} ₽/мес`}
+                      title={`Договор · ${formatMoney(l.rentAmount)} ₽/мес`}
                       subtitle={`${l.startDate.slice(0, 10)} — ${l.endDate.slice(0, 10)}`}
                       trail={
                         <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
@@ -303,7 +304,7 @@ function PropertyDetailInner() {
                         ` · ${m.lastReadingValue} ${METER_UNIT_LABEL[m.meterType]}` +
                         (m.isActive ? '' : ' · отключён')
                       }
-                      trail={`${m.tariff} ₽`}
+                      trail={`${formatMoney(m.tariff)} ₽`}
                       onClick={() => openEditMeter(m)}
                     />
                   ))}
@@ -327,7 +328,7 @@ function PropertyDetailInner() {
                       icon="wallet"
                       title={s.name}
                       subtitle={SERVICE_TYPE_LABEL[s.serviceType]}
-                      trail={`${s.price} ₽`}
+                      trail={`${formatMoney(s.price)} ₽`}
                       chevron={false}
                     />
                   ))}
@@ -365,7 +366,7 @@ function PropertyDetailInner() {
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <div className="field" style={{ flex: 1 }}>
-                <label>Задаток, ₽</label>
+                <label>Депозит, ₽</label>
                 <input type="number" value={lDepositAmount} onChange={(e) => setLDepositAmount(e.target.value)} />
               </div>
               <div className="field" style={{ flex: 1 }}>
@@ -534,7 +535,7 @@ function PropertyDetailInner() {
               <p className="hint">
                 Расход {previewConsumption.toFixed(3)} {selectedMeter ? METER_UNIT_LABEL[selectedMeter.meterType] : ''}
                 {' · начислится '}
-                {previewCost?.toFixed(2)} ₽
+                {previewCost != null ? formatMoney(previewCost) : ''} ₽
               </p>
             )}
             <div className="field">

@@ -6,6 +6,7 @@ import { TopBar } from '@/components/TopBar';
 import { PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { getSummary, LandlordSummary } from '@/lib/reports';
+import { formatMoney } from '@/lib/format';
 
 function ReportsInner() {
   const [data, setData] = useState<LandlordSummary | null>(null);
@@ -36,11 +37,11 @@ function ReportsInner() {
           <>
             <div className="stat-grid">
               <div className="stat">
-                <div className="num">{data.income.total} ₽</div>
+                <div className="num">{formatMoney(data.income.total)} ₽</div>
                 <div className="label">Получено всего</div>
               </div>
               <div className="stat">
-                <div className="num">{data.outstanding.totalDue} ₽</div>
+                <div className="num">{formatMoney(data.outstanding.totalDue)} ₽</div>
                 <div className="label">К оплате</div>
               </div>
               <div className="stat">
@@ -65,7 +66,7 @@ function ReportsInner() {
                     {data.income.byMonth.map((m) => (
                       <tr key={m.month}>
                         <td>{m.month}</td>
-                        <td className="num">{m.amount}</td>
+                        <td className="num">{formatMoney(m.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -91,7 +92,7 @@ function ReportsInner() {
                     {data.outstanding.overdue.map((o) => (
                       <tr key={o.billId}>
                         <td>{o.propertyAddress}</td>
-                        <td className="num">{o.totalDue}</td>
+                        <td className="num">{formatMoney(o.totalDue)}</td>
                         <td className="num">{o.daysOverdue} дн.</td>
                         <td className="muted">{o.tenantEmail ?? '—'}</td>
                       </tr>

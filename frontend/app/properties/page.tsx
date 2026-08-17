@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { createProperty, listProperties, Property } from '@/lib/properties';
 import { Lease, listLeases, STATUS_LABEL } from '@/lib/leases';
+import { formatMoney } from '@/lib/format';
 
 const PROPERTY_TYPES = ['Квартира', 'Комната', 'Дом', 'Апартаменты', 'Коммерческое'];
 
@@ -152,7 +153,7 @@ function PropertiesInner() {
                     <Row
                       key={l.id}
                       icon="doc"
-                      title={`Договор · ${l.rentAmount} ₽/мес`}
+                      title={`Договор · ${formatMoney(l.rentAmount)} ₽/мес`}
                       subtitle={`${l.startDate.slice(0, 10)} — ${l.endDate.slice(0, 10)}`}
                       trail={
                         <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
