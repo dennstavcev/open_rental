@@ -412,33 +412,31 @@ function PropertyDetailInner() {
       {sheet === 'meter' && (
         <Sheet title="Новый счётчик" onClose={closeSheet}>
           <form onSubmit={onAddMeter}>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Тип</label>
-                <select value={mType} onChange={(e) => onMeterTypeChange(e.target.value as MeterType)}>
-                  <option value="electricity">Электричество</option>
-                  <option value="water">Вода</option>
-                  <option value="gas">Газ</option>
-                  <option value="heating">Отопление</option>
-                </select>
-              </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Тариф, ₽/{METER_UNIT_LABEL[mType]}</label>
-                <input type="number" step="0.0001" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
-              </div>
-            </div>
             <div className="field">
               <label>Название</label>
               <input placeholder="напр. ГВС, Электро день" value={mName} onChange={(e) => setMName(e.target.value)} required />
             </div>
+            <div className="field">
+              <label>Серийный номер</label>
+              <input placeholder="необязательно" value={mSerialNumber} onChange={(e) => setMSerialNumber(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Тип счётчика</label>
+              <select value={mType} onChange={(e) => onMeterTypeChange(e.target.value as MeterType)}>
+                <option value="electricity">Электричество</option>
+                <option value="water">Вода</option>
+                <option value="gas">Газ</option>
+                <option value="heating">Отопление</option>
+              </select>
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Серийный номер</label>
-                <input placeholder="необязательно" value={mSerialNumber} onChange={(e) => setMSerialNumber(e.target.value)} />
-              </div>
               <div className="field" style={{ flex: 1 }}>
                 <label>Начальное показание, {METER_UNIT_LABEL[mType]}</label>
                 <input type="number" step="0.001" min={0} value={mInitialReading} onChange={(e) => setMInitialReading(e.target.value)} required />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Тариф, ₽/{METER_UNIT_LABEL[mType]}</label>
+                <input type="number" step="0.0001" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
               </div>
             </div>
             <p className="muted">

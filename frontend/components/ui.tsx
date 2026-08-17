@@ -25,6 +25,7 @@ const PATHS: Record<string, ReactNode> = {
   check: <path d="m5 13 4 4L19 7" />,
   clock: <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 8v4l3 2" />,
   inbox: <path d="M3 13h5l1 3h6l1-3h5M5 5h14l2 8v6H3v-6z" />,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
 };
 
 export function Icon({ name }: { name: string }) {
@@ -242,7 +243,12 @@ export function Sheet({
     <div className="sheet-overlay" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="handle" />
-        <h3>{title}</h3>
+        <div className="sheet-head">
+          <h3>{title}</h3>
+          <button className="sheet-close" onClick={onClose} aria-label="Закрыть">
+            <Icon name="close" />
+          </button>
+        </div>
         {children}
       </div>
     </div>
