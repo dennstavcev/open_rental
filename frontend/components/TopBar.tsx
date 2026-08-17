@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { listNotifications } from '@/lib/notifications';
+import { listInvitations } from '@/lib/leases';
 import { usePolling } from '@/lib/usePolling';
 
 function Icon({ name }: { name: string }) {
@@ -37,16 +38,14 @@ interface NavItem {
   href: string;
   label: string;
   icon: string;
-  badge?: boolean;
+  badgeKey?: 'notifications' | 'invitations';
 }
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Главная', icon: 'home' },
   { href: '/properties', label: 'Аренда', icon: 'building' },
+  { href: '/invitations', label: 'Приглашения', icon: 'mail', badgeKey: 'invitations' },
   { href: '/reports', label: 'Отчёты', icon: 'chart' },
-  { href: '/notifications', label: 'Уведомления', icon: 'bell', badge: true },
-];
-const SIDE_EXTRA: NavItem[] = [
-  { href: '/invitations', label: 'Приглашения', icon: 'mail' },
+  { href: '/notifications', label: 'Уведомления', icon: 'bell', badgeKey: 'notifications' },
 ];
 
 export function TopBar() {
@@ -54,6 +53,7 @@ export function TopBar() {
   const router = useRouter();
   const pathname = usePathname();
   const [unread, setUnread] = useState(0);
+  const [pendingInvites, setPendingInvites] = useState(0);
 
   const refreshUnread = useCallback(() => {
     if (!user) return;
@@ -62,10 +62,21 @@ export function TopBar() {
       .catch(() => setUnread(0));
   }, [user]);
 
+  const refreshInvites = useCallback(() => {
+    if (!user) return;
+    listInvitations()
+      .then((items) => setPendingInvites(items.length))
+      .catch(() => setPendingInvites(0));
+  }, [user]);
+
   useEffect(() => {
     refreshUnread();
-  }, [refreshUnread, pathname]);
+    refreshInvites();
+  }, [refreshUnread, refreshInvites, pathname]);
   usePolling(refreshUnread, 30000);
+  usePolling(refreshInvites, 30000);
+
+  const badgeCounts = { notifications: unread, invitations: pendingInvites };
 
   const active = (href: string) =>
     pathname === href || pathname.startsWith(href + '/');
@@ -75,14 +86,12 @@ export function TopBar() {
     router.replace('/login');
   };
 
-  const sidebarItems = [...NAV, ...SIDE_EXTRA];
-
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="sidebar">
         <div className="brand">SOFTRENT</div>
-        {sidebarItems.map((n) => (
+        {NAV.map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -90,9 +99,9 @@ export function TopBar() {
           >
             <Icon name={n.icon} />
             <span>{n.label}</span>
-            {n.badge && unread > 0 && (
+            {n.badgeKey && badgeCounts[n.badgeKey] > 0 && (
               <span className="pill" style={{ marginLeft: 'auto' }}>
-                {unread}
+                {badgeCounts[n.badgeKey]}
               </span>
             )}
           </Link>
@@ -118,7 +127,9 @@ export function TopBar() {
           <Link key={n.href} href={n.href} className={active(n.href) ? 'active' : ''}>
             <Icon name={n.icon} />
             <span>{n.label}</span>
-            {n.badge && unread > 0 && <span className="nav-badge">{unread}</span>}
+            {n.badgeKey && badgeCounts[n.badgeKey] > 0 && (
+              <span className="nav-badge">{badgeCounts[n.badgeKey]}</span>
+            )}
           </Link>
         ))}
       </nav>

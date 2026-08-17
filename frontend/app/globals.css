@@ -712,7 +712,7 @@ button:disabled {
 .auth-topbar {
   display: flex;
   align-items: center;
-  padding: 16px 18px;
+  padding: 16px 24px;
 }
 .auth-topbar button,
 .auth-topbar a {
