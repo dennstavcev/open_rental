@@ -46,10 +46,10 @@
   --text-primary: var(--ink-900);
   --text-muted: rgba(36, 27, 18, 0.62);
   --text-faint: rgba(36, 27, 18, 0.4);
-  --surface-card: rgba(255, 255, 255, 0.6);
-  --surface-card-strong: rgba(255, 255, 255, 0.85);
-  --surface-input: rgba(255, 255, 255, 0.55);
-  --surface-input-hover: rgba(255, 255, 255, 0.78);
+  --surface-card: rgba(250, 243, 231, 0.6);
+  --surface-card-strong: rgba(250, 243, 231, 0.92);
+  --surface-input: rgba(250, 243, 231, 0.55);
+  --surface-input-hover: rgba(250, 243, 231, 0.8);
   --border-default: rgba(60, 40, 20, 0.16);
   --border-focus: var(--terracotta-400);
   --btn-primary-bg: var(--gradient-accent);
