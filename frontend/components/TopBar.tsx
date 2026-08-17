@@ -40,8 +40,7 @@ interface NavItem {
 }
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Главная', icon: 'home' },
-  { href: '/properties', label: 'Объекты', icon: 'building' },
-  { href: '/leases', label: 'Договоры', icon: 'doc' },
+  { href: '/properties', label: 'Аренда', icon: 'building' },
   { href: '/reports', label: 'Отчёты', icon: 'chart' },
   { href: '/notifications', label: 'Уведомления', icon: 'bell', badge: true },
 ];

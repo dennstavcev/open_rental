@@ -169,10 +169,7 @@ function DashboardInner() {
             <Icon name="plus" /> Сдать объект
           </button>
           <button className="chip" onClick={() => router.push('/properties')}>
-            <Icon name="building" /> Объекты
-          </button>
-          <button className="chip" onClick={() => router.push('/leases')}>
-            <Icon name="doc" /> Договоры
+            <Icon name="building" /> Аренда
           </button>
           <button className="chip" onClick={() => router.push('/reports')}>
             <Icon name="chart" /> Отчёты
@@ -181,7 +178,7 @@ function DashboardInner() {
 
         <Section
           title="Договоры"
-          action={recent.length > 0 ? <span className="link" onClick={() => router.push('/leases')}>Все</span> : undefined}
+          action={recent.length > 0 ? <span className="link" onClick={() => router.push('/properties')}>Все</span> : undefined}
         >
           {loading ? null : recent.length === 0 ? (
             <EmptyState

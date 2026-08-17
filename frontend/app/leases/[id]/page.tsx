@@ -110,7 +110,7 @@ function LeaseDetailInner() {
         ) : (
           <>
             <PageHeader
-              back="/leases"
+              back="/properties"
               title={address || 'Договор'}
               action={
                 <span className={`pill ${lease.status === 'active' ? 'ok' : ''}`}>
