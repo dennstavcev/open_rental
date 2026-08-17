@@ -40,10 +40,15 @@ describe('MetersService', () => {
     await service.create('u1', 'p1', {
       meterType: MeterType.electricity,
       name: 'День',
+      serialNumber: 'SN-001',
       tariff: 5.47,
+      initialReading: 1200,
     });
     expect(properties.findOneForOwner).toHaveBeenCalledWith('u1', 'p1');
     expect(prisma.meter.create.mock.calls[0][0].data.propertyId).toBe('p1');
+    expect(prisma.meter.create.mock.calls[0][0].data.initialReading).toBe(
+      1200,
+    );
   });
 
   it('create на чужой объект → NotFound, счётчик не создаётся', async () => {
@@ -53,6 +58,7 @@ describe('MetersService', () => {
         meterType: MeterType.water,
         name: 'ХВС',
         tariff: 40,
+        initialReading: 0,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.meter.create).not.toHaveBeenCalled();
@@ -67,12 +73,18 @@ describe('MetersService', () => {
     expect(prisma.meter.update).not.toHaveBeenCalled();
   });
 
-  it('list фильтруется по объекту', async () => {
+  it('list фильтруется по объекту и подмешивает lastReadingValue', async () => {
     properties.findOneForOwner.mockResolvedValue({ id: 'p1' });
-    prisma.meter.findMany.mockResolvedValue([]);
-    await service.findAll('u1', 'p1');
+    prisma.meter.findMany.mockResolvedValue([
+      { id: 'm1', initialReading: 100, readings: [{ value: 250 }] },
+      { id: 'm2', initialReading: 50, readings: [] },
+    ]);
+    const result = await service.findAll('u1', 'p1');
     expect(prisma.meter.findMany.mock.calls[0][0].where).toEqual({
       propertyId: 'p1',
     });
+    expect(result[0].lastReadingValue).toBe(250);
+    expect(result[1].lastReadingValue).toBe(50);
+    expect((result[0] as { readings?: unknown }).readings).toBeUndefined();
   });
 });

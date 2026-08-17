@@ -1,5 +1,6 @@
 import { MeterType } from '@prisma/client';
 import {
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -8,6 +9,8 @@ import {
   MinLength,
 } from 'class-validator';
 
+// initialReading сюда намеренно не входит — неизменяемая база отсчёта
+// (ADR-0014); замена физического прибора — новый Meter, не редактирование.
 export class UpdateMeterDto {
   @IsOptional()
   @IsEnum(MeterType)
@@ -19,7 +22,17 @@ export class UpdateMeterDto {
   name?: string;
 
   @IsOptional()
+  @IsString()
+  @MinLength(1)
+  serialNumber?: string;
+
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   tariff?: number;
+
+  // Вывод счётчика из эксплуатации без удаления истории (ADR-0014).
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

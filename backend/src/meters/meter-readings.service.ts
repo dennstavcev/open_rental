@@ -64,6 +64,11 @@ export class MeterReadingsService {
     if (!meter) {
       throw new NotFoundException('Счётчик не найден');
     }
+    if (!meter.isActive) {
+      throw new ConflictException(
+        'Счётчик отключён и не принимает новые показания',
+      );
+    }
 
     // Показание попадает в текущий активный договор объекта.
     const lease = await this.prisma.lease.findFirst({
@@ -81,9 +86,12 @@ export class MeterReadingsService {
       where: { meterId },
       orderBy: { readingDate: 'asc' },
     });
+    // База отсчёта для первого показания — initialReading, а не 0
+    // (ADR-0014): счётчик почти всегда добавляется уже с накопленным
+    // значением, расчёт от нуля завышал бы начисление.
     const previousValue = prior.length
       ? toNumber(prior[prior.length - 1].value)
-      : 0;
+      : toNumber(meter.initialReading);
     if (confirmedValue < previousValue) {
       throw new BadRequestException(
         'Новое показание не может быть меньше предыдущего',

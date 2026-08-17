@@ -39,8 +39,16 @@ describe('MeterReadingsService', () => {
     );
   });
 
-  function meter(tariff = 5) {
-    return { id: 'm1', propertyId: 'p1', name: 'Электро', tariff };
+  function meter(tariff = 5, extra: Record<string, unknown> = {}) {
+    return {
+      id: 'm1',
+      propertyId: 'p1',
+      name: 'Электро',
+      tariff,
+      isActive: true,
+      initialReading: 0,
+      ...extra,
+    };
   }
 
   it('отклоняет не-JPEG/PNG фото', async () => {
@@ -58,6 +66,28 @@ describe('MeterReadingsService', () => {
     await expect(
       service.create('tenant1', 'm1', 100, photo),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('отключённый счётчик не принимает показания → Conflict', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5, { isActive: false }));
+    await expect(
+      service.create('tenant1', 'm1', 100, photo),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.meterReading.create).not.toHaveBeenCalled();
+  });
+
+  it('первое показание без истории считает расход от initialReading, а не от 0 (ADR-0014)', async () => {
+    prisma.meter.findUnique.mockResolvedValue(
+      meter(5, { initialReading: 100 }),
+    );
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([]);
+    prisma.meterReading.create.mockResolvedValue({ id: 'r0' });
+
+    const res = await service.create('tenant1', 'm1', 150, photo);
+
+    expect(res.consumption).toBe(50);
+    expect(res.cost).toBe(250);
   });
 
   it('новое значение меньше предыдущего → BadRequest', async () => {

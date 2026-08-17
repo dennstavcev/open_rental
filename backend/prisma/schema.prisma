@@ -406,13 +406,21 @@ enum MeterType {
 // в т.ч. одного типа — различаются пользовательским name
 // (docs/ARCHITECTURE.md, Meter). Тариф — на счётчике. Показания
 // (MeterReading) добавляются в модуле биллинга.
+// serialNumber/isActive/initialReading — ADR-0014.
 model Meter {
   id         String    @id @default(uuid())
   property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   propertyId String
   meterType  MeterType
   name       String
+  // Серийный номер физического прибора — для сверки/поверки, опционально.
+  serialNumber String?
   tariff     Decimal   @db.Decimal(12, 4)
+  // Отключённый счётчик не принимает новые показания, но история не теряется.
+  isActive   Boolean   @default(true)
+  // Значение на момент постановки на учёт — база для расчёта расхода
+  // первого показания вместо 0 (ADR-0014). Неизменяемо после создания.
+  initialReading Decimal @db.Decimal(12, 3)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

@@ -11,7 +11,7 @@ import { Meter } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { MetersService } from './meters.service';
+import { MetersService, MeterListItem } from './meters.service';
 import { CreateMeterDto } from './dto/create-meter.dto';
 import { UpdateMeterDto } from './dto/update-meter.dto';
 
@@ -33,7 +33,7 @@ export class MetersController {
   findAll(
     @CurrentUser() user: AuthenticatedUser,
     @Param('propertyId') propertyId: string,
-  ): Promise<Meter[]> {
+  ): Promise<MeterListItem[]> {
     return this.meters.findAll(user.id, propertyId);
   }
 

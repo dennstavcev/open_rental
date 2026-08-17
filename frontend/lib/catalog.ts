@@ -15,7 +15,13 @@ export interface Meter {
   id: string;
   meterType: MeterType;
   name: string;
+  serialNumber: string | null;
   tariff: string;
+  isActive: boolean;
+  initialReading: string;
+  // Последнее показание или initialReading, если показаний ещё не было
+  // (ADR-0014) — вычисляется бэкендом, не хранится отдельно.
+  lastReadingValue: number;
 }
 
 export interface ReadingResult {
@@ -35,6 +41,22 @@ export const METER_TYPE_LABEL: Record<MeterType, string> = {
   water: 'Вода',
   gas: 'Газ',
   heating: 'Отопление',
+};
+
+export const METER_UNIT_LABEL: Record<MeterType, string> = {
+  electricity: 'кВт·ч',
+  water: 'м³',
+  gas: 'м³',
+  heating: 'Гкал',
+};
+
+// Подсказка тарифа при выборе типа — не влияет на сохранённое значение,
+// пользователь может изменить перед сохранением.
+export const METER_DEFAULT_TARIFF: Record<MeterType, number> = {
+  electricity: 5.5,
+  water: 45,
+  gas: 8.5,
+  heating: 1800,
 };
 
 export function listServices(propertyId: string): Promise<Service[]> {
@@ -57,10 +79,33 @@ export function listMeters(propertyId: string): Promise<Meter[]> {
 
 export function createMeter(
   propertyId: string,
-  input: { meterType: MeterType; name: string; tariff: number },
+  input: {
+    meterType: MeterType;
+    name: string;
+    serialNumber?: string;
+    tariff: number;
+    initialReading: number;
+  },
 ): Promise<Meter> {
   return apiFetch(`/properties/${propertyId}/meters`, {
     method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateMeter(
+  propertyId: string,
+  meterId: string,
+  input: Partial<{
+    meterType: MeterType;
+    name: string;
+    serialNumber: string;
+    tariff: number;
+    isActive: boolean;
+  }>,
+): Promise<Meter> {
+  return apiFetch(`/properties/${propertyId}/meters/${meterId}`, {
+    method: 'PATCH',
     body: JSON.stringify(input),
   });
 }

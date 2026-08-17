@@ -20,6 +20,7 @@ ADR — короткий документ, фиксирующий одно ар�
 | [0011](0011-payment-bill-future-acquiring-readiness.md) | Готовность Payment/Bill под будущий эквайринг (СБП) | Принято |
 | [0012](0012-payment-confirmation-nominal-flow.md) | Подтверждение оплаты — номинальный флоу (без эквайринга) | Принято |
 | [0013](0013-mvp-scheduler-nestjs-schedule.md) | Планировщик периодов в MVP — @nestjs/schedule (BullMQ отложен) | Принято |
+| [0014](0014-meter-model-extension.md) | Расширение модели Meter — серийный номер, отключение, начальное показание | Принято |
 
 ## Как завести новый ADR
 

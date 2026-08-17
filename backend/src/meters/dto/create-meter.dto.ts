@@ -1,5 +1,12 @@
 import { MeterType } from '@prisma/client';
-import { IsEnum, IsNumber, IsString, Min, MinLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateMeterDto {
   @IsEnum(MeterType)
@@ -11,7 +18,20 @@ export class CreateMeterDto {
   @MinLength(1)
   name!: string;
 
+  // Серийный номер физического прибора — для сверки/поверки (ADR-0014).
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  serialNumber?: string;
+
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   tariff!: number;
+
+  // Значение на момент постановки на учёт — база для расчёта расхода
+  // первого показания (ADR-0014). Обязательно: счётчик почти всегда
+  // добавляется уже с накопленным значением.
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  initialReading!: number;
 }
