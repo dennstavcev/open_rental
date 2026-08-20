@@ -43,4 +43,31 @@ export class LeaseDocumentsController {
     const doc = await this.documents.getLatest(user.id, leaseId);
     return doc.content;
   }
+
+  // Приложение №1 — акт приёма-передачи имущества (ADR-0018).
+  @Post('handover-act')
+  generateHandoverAct(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<LeaseDocument> {
+    return this.documents.generateHandoverAct(user.id, leaseId);
+  }
+
+  @Get('handover-act')
+  getLatestHandoverAct(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<LeaseDocument> {
+    return this.documents.getLatestHandoverAct(user.id, leaseId);
+  }
+
+  @Get('handover-act/html')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async handoverActHtml(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<string> {
+    const doc = await this.documents.getLatestHandoverAct(user.id, leaseId);
+    return doc.content;
+  }
 }

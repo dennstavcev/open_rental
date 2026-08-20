@@ -192,7 +192,9 @@ export class LeasesService {
   }
 
   // Договор-черновик, принадлежащий landlord'у (иначе 404/403/409).
-  private async getOwnedDraft(
+  // Публичный — переиспользуется модулями, чьи под-ресурсы редактируются
+  // только пока договор черновик (например, LeaseInventoryItemsService).
+  async getOwnedDraft(
     landlordId: string,
     leaseId: string,
   ): Promise<Lease> {

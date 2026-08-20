@@ -9,6 +9,8 @@ import { LeaseSignedScansController } from './lease-signed-scans.controller';
 import { LeaseSignedScansAdminController } from './lease-signed-scans-admin.controller';
 import { LeaseDocumentsService } from './lease-documents.service';
 import { LeaseDocumentsController } from './lease-documents.controller';
+import { LeaseInventoryItemsService } from './lease-inventory-items.service';
+import { LeaseInventoryItemsController } from './lease-inventory-items.controller';
 
 @Module({
   imports: [PropertiesModule, NotificationsModule],
@@ -18,8 +20,14 @@ import { LeaseDocumentsController } from './lease-documents.controller';
     LeaseSignedScansController,
     LeaseSignedScansAdminController,
     LeaseDocumentsController,
+    LeaseInventoryItemsController,
   ],
-  providers: [LeasesService, LeaseSignedScansService, LeaseDocumentsService],
+  providers: [
+    LeasesService,
+    LeaseSignedScansService,
+    LeaseDocumentsService,
+    LeaseInventoryItemsService,
+  ],
   exports: [LeasesService],
 })
 export class LeasesModule {}

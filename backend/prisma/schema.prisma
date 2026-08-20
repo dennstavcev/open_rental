@@ -119,6 +119,7 @@ model Lease {
   maintenanceRequests MaintenanceRequest[]
   messages    Message[]
   documents   LeaseDocument[]
+  inventoryItems LeaseInventoryItem[]
 
   @@index([propertyId])
   @@index([landlordId])
@@ -127,20 +128,47 @@ model Lease {
 }
 
 // Сгенерированный текст договора (docs/ARCHITECTURE.md, LeaseDocument) —
-// отдельно от сканов с подписью (LeaseSignedScan). Версионируется на договор.
+// отдельно от сканов с подписью (LeaseSignedScan). Версионируется на
+// договор, отдельно на каждый kind (ADR-0018: handover_act — Приложение №1,
+// опись имущества без персональных данных).
 model LeaseDocument {
-  id            String   @id @default(uuid())
-  lease         Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  id            String            @id @default(uuid())
+  lease         Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
   leaseId       String
+  kind          LeaseDocumentKind @default(contract)
   version       Int
-  format        String   @default("html")
+  format        String            @default("html")
   content       String
   generatedById String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime          @default(now())
 
-  @@unique([leaseId, version])
+  @@unique([leaseId, kind, version])
   @@index([leaseId])
   @@map("lease_documents")
+}
+
+enum LeaseDocumentKind {
+  contract
+  handover_act
+}
+
+// Позиция описи имущества, передаваемого по договору (ADR-0018) — рендерится
+// как Приложение №1 (LeaseDocument kind=handover_act). Сознательно без
+// персональных данных сторон, только описание вещей (ADR-0017).
+model LeaseInventoryItem {
+  id        String   @id @default(uuid())
+  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId   String
+  // Тип техники/предмета — свободный текст («Холодильник», «Диван»).
+  type      String
+  brand     String?
+  model     String?
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([leaseId])
+  @@map("lease_inventory_items")
 }
 
 // Сообщение в переписке по договору (docs/ARCHITECTURE.md, Message). Без
