@@ -2,6 +2,7 @@
 
 import { FormEvent, useRef, useState } from 'react';
 import Link from 'next/link';
+import { InventoryEditor } from '@/components/InventoryEditor';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
 import { ApiError } from '@/lib/api';
@@ -17,7 +18,7 @@ import {
   ServiceType,
 } from '@/lib/catalog';
 
-type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
 function OnboardingInner() {
   const [step, setStep] = useState<Step>(1);
@@ -43,17 +44,17 @@ function OnboardingInner() {
     <>
       <TopBar />
       <div className="container">
-        <h1>Сдача объекта за 4 шага</h1>
+        <h1>Сдача объекта за 5 шагов</h1>
         <p className="muted">
           Проведём от пустого профиля до отправленного арендатору договора:
-          объект → счётчики/услуги → условия → приглашение.
+          объект → счётчики/услуги → условия → опись имущества → приглашение.
         </p>
         <div className="stepper">
-          {[1, 2, 3, 4].map((n) => (
+          {[1, 2, 3, 4, 5].map((n) => (
             <div key={n} className={`seg ${step >= n ? 'on' : ''}`} />
           ))}
         </div>
-        <p className="muted">Шаг {Math.min(step, 4)} из 4</p>
+        <p className="muted">Шаг {Math.min(step, 5)} из 5</p>
         {error && <div className="error">{error}</div>}
 
         {step === 1 && (
@@ -86,14 +87,17 @@ function OnboardingInner() {
           />
         )}
         {step === 4 && (
+          <StepInventory leaseId={leaseId} onNext={() => setStep(5)} />
+        )}
+        {step === 5 && (
           <StepInvite
             leaseId={leaseId}
             busy={busy}
             guard={guard}
-            onDone={() => setStep(5)}
+            onDone={() => setStep(6)}
           />
         )}
-        {step === 5 && (
+        {step === 6 && (
           <div className="card">
             <h3>Готово! Что дальше</h3>
             <p className="muted">
@@ -367,6 +371,33 @@ function StepLease({
   );
 }
 
+// Шаг описи (ADR-0018): договор не содержит персональных данных сторон
+// (ADR-0017), поэтому предметная часть — что именно передаётся вместе с
+// помещением — выносится в Приложение №1.
+function StepInventory({
+  leaseId,
+  onNext,
+}: {
+  leaseId: string;
+  onNext: () => void;
+}) {
+  return (
+    <div className="card">
+      <h3>Шаг 4. Опись имущества</h3>
+      <p className="muted">
+        Перечислите технику и мебель, которые передаёте вместе с помещением —
+        из этого списка формируется Приложение №1 «Акт приёма-передачи
+        имущества». Шаг можно пропустить и дополнить опись позже, пока
+        договор остаётся черновиком.
+      </p>
+      <InventoryEditor leaseId={leaseId} editable />
+      <button onClick={onNext} style={{ width: '100%', marginTop: 12 }}>
+        Далее
+      </button>
+    </div>
+  );
+}
+
 function StepInvite({
   leaseId,
   busy,
@@ -390,7 +421,7 @@ function StepInvite({
         });
       }}
     >
-      <h3>Шаг 4. Пригласить арендатора</h3>
+      <h3>Шаг 5. Пригласить арендатора</h3>
       <p className="muted">
         Укажите email арендатора — ему придёт приглашение. Он
         регистрируется по этому адресу, принимает приглашение и становится

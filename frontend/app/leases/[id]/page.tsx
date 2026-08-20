@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { InventoryEditor } from '@/components/InventoryEditor';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
 import { LeaseTabs, List, PageHeader, Row, Section } from '@/components/ui';
@@ -9,7 +10,9 @@ import { ApiError } from '@/lib/api';
 import { getProperty } from '@/lib/properties';
 import {
   generateDocument,
+  generateHandoverAct,
   getDocument,
+  getHandoverAct,
   getLease,
   Lease,
   LeaseSignedScan,
@@ -19,17 +22,22 @@ import {
   uploadSignedScan,
 } from '@/lib/leases';
 import { formatMoney } from '@/lib/format';
+import { useAuth } from '@/lib/auth';
 import { usePolling } from '@/lib/usePolling';
 
 const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' };
 
 function LeaseDetailInner() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [lease, setLease] = useState<Lease | null>(null);
   const [address, setAddress] = useState<string>('');
   const [scans, setScans] = useState<LeaseSignedScan[]>([]);
   const [docHtml, setDocHtml] = useState<string | null>(null);
   const [showDoc, setShowDoc] = useState(false);
+  const [actHtml, setActHtml] = useState<string | null>(null);
+  const [showAct, setShowAct] = useState(false);
+  const [itemsCount, setItemsCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -48,6 +56,11 @@ function LeaseDetailInner() {
         setDocHtml((await getDocument(id)).content);
       } catch {
         setDocHtml(null);
+      }
+      try {
+        setActHtml((await getHandoverAct(id)).content);
+      } catch {
+        setActHtml(null);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
@@ -86,6 +99,21 @@ function LeaseDetailInner() {
     }
   }
 
+  // Приложение №1 к договору (ADR-0018) — версионируется отдельно от текста
+  // договора, пересобирается из текущей описи.
+  async function onGenerateAct() {
+    setBusy(true);
+    setError(null);
+    try {
+      setActHtml((await generateHandoverAct(id)).content);
+      setShowAct(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка генерации акта');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onUpload(e: FormEvent) {
     e.preventDefault();
     const file = fileRef.current?.files?.[0];
@@ -102,6 +130,11 @@ function LeaseDetailInner() {
       setBusy(false);
     }
   }
+
+  // Генерация документов и правка описи — только собственник (эндпоинты
+  // landlord-only), причём опись — только пока договор черновик.
+  const isLandlord = !!lease && !!user && lease.landlordId === user.id;
+  const inventoryEditable = isLandlord && lease?.status === 'draft';
 
   return (
     <>
@@ -151,9 +184,11 @@ function LeaseDetailInner() {
             <Section
               title="Текст договора"
               action={
-                <button className="link" onClick={onGenerate} disabled={busy}>
-                  {docHtml ? 'Перегенерировать' : 'Сгенерировать'}
-                </button>
+                isLandlord ? (
+                  <button className="link" onClick={onGenerate} disabled={busy}>
+                    {docHtml ? 'Перегенерировать' : 'Сгенерировать'}
+                  </button>
+                ) : undefined
               }
             >
               {docHtml ? (
@@ -176,6 +211,64 @@ function LeaseDetailInner() {
                 </div>
               ) : (
                 <div className="empty">Текст ещё не сгенерирован.</div>
+              )}
+            </Section>
+
+            <Section
+              title="Опись имущества"
+              action={
+                itemsCount > 0 ? (
+                  <span className="muted">{itemsCount} поз.</span>
+                ) : undefined
+              }
+            >
+              {inventoryEditable && (
+                <div className="hint">
+                  Что передаётся вместе с помещением — техника и мебель. Из
+                  этого списка собирается Приложение №1; менять его можно,
+                  пока договор остаётся черновиком.
+                </div>
+              )}
+              <InventoryEditor
+                leaseId={id}
+                editable={inventoryEditable}
+                onCountChange={setItemsCount}
+              />
+            </Section>
+
+            <Section
+              title="Приложение №1 — акт приёма-передачи"
+              action={
+                isLandlord ? (
+                  <button className="link" onClick={onGenerateAct} disabled={busy}>
+                    {actHtml ? 'Перегенерировать' : 'Сгенерировать'}
+                  </button>
+                ) : undefined
+              }
+            >
+              {actHtml ? (
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                  <button
+                    className="row"
+                    onClick={() => setShowAct((v) => !v)}
+                    style={{ borderBottom: showAct ? '1px solid var(--border-default)' : 'none' }}
+                  >
+                    <span className="lead"><span style={{ fontSize: 18 }}>📦</span></span>
+                    <span className="body"><span className="t">Акт приёма-передачи имущества</span><span className="s">{showAct ? 'Скрыть' : 'Показать текст'}</span></span>
+                  </button>
+                  {showAct && (
+                    <iframe
+                      title="Акт приёма-передачи"
+                      srcDoc={actHtml}
+                      style={{ width: '100%', height: 460, border: 'none', background: '#fff' }}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="empty">
+                  Акт ещё не сгенерирован — печатается и подписывается вместе с
+                  договором.
+                </div>
               )}
             </Section>
 

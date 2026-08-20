@@ -97,6 +97,73 @@ export function getDocument(id: string): Promise<LeaseDocument> {
   return apiFetch<LeaseDocument>(`/leases/${id}/document`);
 }
 
+// Опись имущества, передаваемого с помещением (ADR-0018) — из неё
+// рендерится Приложение №1 «Акт приёма-передачи имущества». Правит только
+// собственник и только пока договор — черновик; список видят обе стороны.
+export interface LeaseInventoryItem {
+  id: string;
+  leaseId: string;
+  type: string;
+  brand: string | null;
+  model: string | null;
+  quantity: number;
+}
+
+export interface InventoryItemInput {
+  type: string;
+  brand?: string;
+  model?: string;
+  quantity?: number;
+}
+
+export function listInventoryItems(
+  leaseId: string,
+): Promise<LeaseInventoryItem[]> {
+  return apiFetch<LeaseInventoryItem[]>(`/leases/${leaseId}/inventory-items`);
+}
+
+export function createInventoryItem(
+  leaseId: string,
+  input: InventoryItemInput,
+): Promise<LeaseInventoryItem> {
+  return apiFetch<LeaseInventoryItem>(`/leases/${leaseId}/inventory-items`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateInventoryItem(
+  leaseId: string,
+  itemId: string,
+  input: InventoryItemInput,
+): Promise<LeaseInventoryItem> {
+  return apiFetch<LeaseInventoryItem>(
+    `/leases/${leaseId}/inventory-items/${itemId}`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function deleteInventoryItem(
+  leaseId: string,
+  itemId: string,
+): Promise<unknown> {
+  return apiFetch(`/leases/${leaseId}/inventory-items/${itemId}`, {
+    method: 'DELETE',
+  });
+}
+
+// Приложение №1 — акт приёма-передачи имущества (ADR-0018). Версионируется
+// отдельно от текста договора.
+export function generateHandoverAct(id: string): Promise<LeaseDocument> {
+  return apiFetch<LeaseDocument>(`/leases/${id}/document/handover-act`, {
+    method: 'POST',
+  });
+}
+
+export function getHandoverAct(id: string): Promise<LeaseDocument> {
+  return apiFetch<LeaseDocument>(`/leases/${id}/document/handover-act`);
+}
+
 export function listSignedScans(id: string): Promise<LeaseSignedScan[]> {
   return apiFetch<LeaseSignedScan[]>(`/leases/${id}/signed-scans`);
 }
