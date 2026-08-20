@@ -18,6 +18,7 @@ import { listBills } from '@/lib/billing';
 import { listNotifications } from '@/lib/notifications';
 import { getSummary } from '@/lib/reports';
 import { formatMoney } from '@/lib/format';
+import { getPartyInfoStatus } from '@/lib/party-info';
 
 interface Action {
   key: string;
@@ -83,6 +84,21 @@ function DashboardInner() {
       leases.map(async (l) => {
         const role = l.tenantId === uid ? 'tenant' : 'landlord';
         const place = addrMap[l.propertyId] ?? l.property.address;
+        if (l.status === 'sent' || l.status === 'active') {
+          const partyInfo = await getPartyInfoStatus(l.id).catch(() => null);
+          if (
+            partyInfo &&
+            (!partyInfo.self.filled || partyInfo.self.needsConsent)
+          ) {
+            acts.push({
+              key: `pii-${l.id}`,
+              icon: 'info',
+              title: 'Внесите паспортные данные',
+              subtitle: place,
+              href: `/leases/${l.id}/party-info`,
+            });
+          }
+        }
         if (l.status === 'sent') {
           const scans = await listSignedScans(l.id).catch(() => []);
           if (!scans.find((s) => s.role === role)) {

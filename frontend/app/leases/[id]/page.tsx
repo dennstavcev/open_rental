@@ -15,6 +15,7 @@ import {
   getHandoverAct,
   getLease,
   Lease,
+  LeaseDocument,
   LeaseSignedScan,
   listSignedScans,
   sendLease,
@@ -24,6 +25,11 @@ import {
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/lib/auth';
 import { usePolling } from '@/lib/usePolling';
+import {
+  formatDateRu,
+  getPartyInfoStatus,
+  PartyInfoStatus,
+} from '@/lib/party-info';
 
 const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' };
 
@@ -32,7 +38,8 @@ function LeaseDetailInner() {
   const { user } = useAuth();
   const [lease, setLease] = useState<Lease | null>(null);
   const [scans, setScans] = useState<LeaseSignedScan[]>([]);
-  const [docHtml, setDocHtml] = useState<string | null>(null);
+  const [doc, setDoc] = useState<LeaseDocument | null>(null);
+  const [piStatus, setPiStatus] = useState<PartyInfoStatus | null>(null);
   const [showDoc, setShowDoc] = useState(false);
   const [actHtml, setActHtml] = useState<string | null>(null);
   const [showAct, setShowAct] = useState(false);
@@ -48,13 +55,14 @@ function LeaseDetailInner() {
     try {
       const l = await getLease(id);
       setLease(l);
+      setPiStatus(await getPartyInfoStatus(id).catch(() => null));
       if (l.status === 'sent' || l.status === 'active') {
         setScans(await listSignedScans(id));
       }
       try {
-        setDocHtml((await getDocument(id)).content);
+        setDoc(await getDocument(id));
       } catch {
-        setDocHtml(null);
+        setDoc(null);
       }
       try {
         setActHtml((await getHandoverAct(id)).content);
@@ -106,7 +114,7 @@ function LeaseDetailInner() {
     setBusy(true);
     setError(null);
     try {
-      setDocHtml((await generateDocument(id)).content);
+      setDoc(await generateDocument(id));
       setShowDoc(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка генерации');
@@ -151,6 +159,21 @@ function LeaseDetailInner() {
   // landlord-only), причём опись — только пока договор черновик.
   const isLandlord = !!lease && !!user && lease.landlordId === user.id;
   const inventoryEditable = isLandlord && lease?.status === 'draft';
+  const latestPartyUpdate = piStatus
+    ? [piStatus.self.updatedAt, piStatus.counterparty.updatedAt]
+        .filter((value): value is string => Boolean(value))
+        .reduce<string | null>(
+          (latest, value) =>
+            !latest || new Date(value) > new Date(latest) ? value : latest,
+          null,
+        )
+    : null;
+  const documentOutdated = Boolean(
+    isLandlord &&
+      doc &&
+      latestPartyUpdate &&
+      new Date(latestPartyUpdate) > new Date(doc.createdAt),
+  );
 
   return (
     <>
@@ -212,12 +235,12 @@ function LeaseDetailInner() {
               action={
                 isLandlord ? (
                   <button className="link" onClick={onGenerate} disabled={busy}>
-                    {docHtml ? 'Перегенерировать' : 'Сгенерировать'}
+                    {doc ? 'Перегенерировать' : 'Сгенерировать'}
                   </button>
                 ) : undefined
               }
             >
-              {docHtml ? (
+              {doc ? (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                   <button
                     className="row"
@@ -230,7 +253,7 @@ function LeaseDetailInner() {
                   {showDoc && (
                     <iframe
                       title="Договор"
-                      srcDoc={docHtml}
+                      srcDoc={doc.content}
                       style={{ width: '100%', height: 460, border: 'none', background: '#fff' }}
                     />
                   )}
@@ -295,6 +318,44 @@ function LeaseDetailInner() {
                   Акт ещё не сгенерирован — печатается и подписывается вместе с
                   договором.
                 </div>
+              )}
+            </Section>
+
+            <Section title="Персональные данные сторон">
+              {piStatus ? (
+                <>
+                  <List>
+                    {(['landlord', 'tenant'] as const).map((role) => {
+                      const own = role === piStatus.role;
+                      const party = own
+                        ? piStatus.self
+                        : piStatus.counterparty;
+                      return (
+                        <Row
+                          key={role}
+                          icon={party.filled ? 'check' : 'clock'}
+                          iconVariant={party.filled ? undefined : 'warm'}
+                          title={ROLE_LABEL[role]}
+                          subtitle={
+                            party.filled && party.updatedAt
+                              ? `Внесены ${formatDateRu(party.updatedAt)}`
+                              : 'Не внесены'
+                          }
+                          href={own ? `/leases/${id}/party-info` : undefined}
+                          chevron={own}
+                        />
+                      );
+                    })}
+                  </List>
+                  {documentOutdated && (
+                    <div className="hint">
+                      Текст договора сгенерирован раньше, чем стороны внесли
+                      данные — перегенерируйте, иначе в нём останутся прочерки.
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="empty">Статус загружается…</div>
               )}
             </Section>
 

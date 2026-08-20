@@ -3,7 +3,7 @@ import { LeaseParty } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SuperAdminGuard } from '../auth/guards/super-admin.guard';
 import { PartyInfoService } from './party-info.service';
-import { PartyInfoDto } from './dto/party-info.dto';
+import { PartyInfoView } from './dto/party-info.dto';
 
 // Чтение персональных данных любой стороны договора — только SuperAdmin
 // (споры/проверки, ADR-0021). Записывать за пользователя нельзя — только
@@ -17,7 +17,7 @@ export class PartyInfoAdminController {
   get(
     @Param('leaseId') leaseId: string,
     @Param('role') role: LeaseParty,
-  ): Promise<PartyInfoDto> {
+  ): Promise<PartyInfoView> {
     return this.partyInfo.getAsSuperAdmin(leaseId, role);
   }
 }

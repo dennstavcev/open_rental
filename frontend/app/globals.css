@@ -489,6 +489,48 @@ textarea:focus {
   background: var(--surface-input-hover);
   box-shadow: 0 0 0 3px var(--accent-weak);
 }
+input:disabled,
+textarea:disabled {
+  color: var(--text-muted);
+  background: rgba(60, 40, 20, 0.06);
+  cursor: not-allowed;
+}
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+}
+.consent input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+.legal {
+  max-width: 760px;
+  padding: 20px 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  line-height: var(--leading-relaxed);
+}
+.legal h2 {
+  margin: 24px 0 8px;
+  font-size: var(--text-lg);
+}
+.legal h2:first-child {
+  margin-top: 0;
+}
+.legal p,
+.legal ul {
+  margin: 0 0 14px;
+}
+.legal ul {
+  padding-left: 22px;
+}
 button {
   padding: 13px 22px;
   border: none;
@@ -760,6 +802,14 @@ button:disabled {
   color: var(--text-on-photo-muted);
   font-size: var(--text-sm);
   margin-top: 2px;
+}
+.auth-policy {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: var(--text-xs);
+}
+.auth-policy a {
+  color: var(--text-muted);
 }
 
 /* Desktop: drop the photo (source is low-res) — clean centered card on the

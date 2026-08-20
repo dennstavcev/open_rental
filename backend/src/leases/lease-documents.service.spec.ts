@@ -18,6 +18,15 @@ const leaseWithRelations = {
   tenant: { fullName: 'Петров Пётр Петрович' },
 };
 
+const partyInfoData = {
+  passportSeries: '4510',
+  passportNumber: '123456',
+  passportIssuedBy: 'ОУФМС района Тверской г. Москвы',
+  birthDate: '1995-05-20',
+  registrationAddress: 'Москва, ул. Ленина, д. 5, кв. 10',
+  phone: '+79991234567',
+};
+
 describe('LeaseDocumentsService', () => {
   let service: LeaseDocumentsService;
   let prisma: any;
@@ -66,18 +75,14 @@ describe('LeaseDocumentsService', () => {
     prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
     prisma.leaseDocument.findFirst.mockResolvedValue(null);
     prisma.leasePartyInfo.findMany.mockResolvedValue([
-      { role: 'tenant', dataEnc: 'enc:tenant' },
+      {
+        role: 'tenant',
+        dataEnc: 'enc:tenant',
+        consentAcceptedAt: new Date('2026-08-20T10:00:00Z'),
+        consentPolicyVersion: 'старая-но-действовавшая-версия',
+      },
     ]);
-    crypto.decrypt.mockReturnValue(
-      JSON.stringify({
-        passportSeries: '4510',
-        passportNumber: '123456',
-        passportIssuedBy: 'ОУФМС района Тверской г. Москвы',
-        birthDate: '1995-05-20',
-        registrationAddress: 'Москва, ул. Ленина, д. 5, кв. 10',
-        phone: '+79991234567',
-      }),
-    );
+    crypto.decrypt.mockReturnValue(JSON.stringify(partyInfoData));
 
     const doc = await service.generate('landlord1', 'l1');
 
@@ -86,8 +91,58 @@ describe('LeaseDocumentsService', () => {
     expect(doc.content).toContain('ОУФМС района Тверской г. Москвы');
     expect(doc.content).toContain('Москва, ул. Ленина, д. 5, кв. 10');
     expect(doc.content).toContain('+79991234567');
+    expect(doc.content).toContain('Дата рождения: 20.05.1995');
     // Арендодатель ничего не заполнял — у него по-прежнему прочерк.
     expect(doc.content).toContain('Паспорт серии ______');
+  });
+
+  it('не подставляет запись без зафиксированного согласия', async () => {
+    prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
+    prisma.leaseDocument.findFirst.mockResolvedValue(null);
+    const rows = [
+      {
+        role: 'tenant',
+        dataEnc: 'enc:tenant',
+        consentAcceptedAt: null,
+        consentPolicyVersion: null,
+      },
+    ];
+    prisma.leasePartyInfo.findMany.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        rows.filter(
+          (row) =>
+            row.consentAcceptedAt !== null ||
+            where.consentAcceptedAt?.not === undefined,
+        ),
+      ),
+    );
+
+    const doc = await service.generate('landlord1', 'l1');
+
+    expect(prisma.leasePartyInfo.findMany).toHaveBeenCalledWith({
+      where: { leaseId: 'l1', consentAcceptedAt: { not: null } },
+    });
+    expect(crypto.decrypt).not.toHaveBeenCalled();
+    expect(doc.content).toContain('Дата рождения: __.__.____');
+    expect(doc.content).toContain('Паспорт серии ______');
+  });
+
+  it('подставляет запись с согласием под устаревшей редакцией', async () => {
+    prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
+    prisma.leaseDocument.findFirst.mockResolvedValue(null);
+    prisma.leasePartyInfo.findMany.mockResolvedValue([
+      {
+        role: 'tenant',
+        dataEnc: 'enc:tenant',
+        consentAcceptedAt: new Date('2026-08-20T10:00:00Z'),
+        consentPolicyVersion: 'устаревшая-версия',
+      },
+    ]);
+    crypto.decrypt.mockReturnValue(JSON.stringify(partyInfoData));
+
+    const doc = await service.generate('landlord1', 'l1');
+
+    expect(doc.content).toContain('Паспорт серии 4510 № 123456');
   });
 
   it('версия инкрементируется', async () => {

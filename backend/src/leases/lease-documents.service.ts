@@ -17,6 +17,7 @@ const RU_MONTHS = [
 // Прочерки для незаполненных персональных полей (ADR-0021) — по длине как
 // в исходном шаблоне dogovor_arendy.docx.
 const BLANK_NAME = '____________________';
+const BLANK_BIRTH_DATE = '__.__.____';
 const BLANK_ADDRESS = '____________________';
 const BLANK_SERIES = '______';
 const BLANK_NUMBER = '_________';
@@ -87,7 +88,9 @@ export class LeaseDocumentsService {
     leaseId: string,
   ): Promise<{ landlord: PartyInfoDto | null; tenant: PartyInfoDto | null }> {
     const rows = await this.prisma.leasePartyInfo.findMany({
-      where: { leaseId },
+      // Редакция политики может устареть, но согласие, действовавшее в
+      // момент сбора, не обесценивает уже сформированные отношения сторон.
+      where: { leaseId, consentAcceptedAt: { not: null } },
     });
     const byRole = new Map(rows.map((row) => [row.role, row]));
     const decrypt = (role: LeaseParty): PartyInfoDto | null => {
@@ -110,6 +113,9 @@ export class LeaseDocumentsService {
     data: PartyInfoDto | null,
   ): Record<string, string> {
     return {
+      [`${prefix}BirthDate`]: data
+        ? this.formatBirthDate(data.birthDate)
+        : BLANK_BIRTH_DATE,
       [`${prefix}RegistrationAddress`]: data?.registrationAddress ?? BLANK_ADDRESS,
       [`${prefix}PassportSeries`]: data?.passportSeries ?? BLANK_SERIES,
       [`${prefix}PassportNumber`]: data?.passportNumber ?? BLANK_NUMBER,
@@ -221,6 +227,11 @@ export class LeaseDocumentsService {
 
   private formatRuDate(date: Date): string {
     return `«${date.getUTCDate()}» ${RU_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()} г.`;
+  }
+
+  private formatBirthDate(value: string): string {
+    const [year, month, day] = value.split('-');
+    return `${day}.${month}.${year}`;
   }
 
   private monthsBetween(start: Date, end: Date): number {

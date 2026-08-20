@@ -75,6 +75,11 @@ export default function LoginPage() {
               Регистрация
             </button>
           </Link>
+          <p className="auth-policy">
+            <Link href="/legal/privacy">
+              Политика обработки персональных данных
+            </Link>
+          </p>
         </form>
       </div>
     </div>

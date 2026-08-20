@@ -36,10 +36,12 @@ export const LEASE_CONTRACT_TEMPLATE = `<!DOCTYPE html>
 <table class="parties">
   <tr>
     <td><b>Арендодатель:</b><br/>Гр. РФ {{landlordFullName}} (ФИО)<br/>
+      Дата рождения: {{landlordBirthDate}}<br/>
       Адрес регистрации: {{landlordRegistrationAddress}}<br/>
       Паспорт серии {{landlordPassportSeries}} № {{landlordPassportNumber}}, выдан {{landlordPassportIssuedBy}}<br/>
       Тел.: {{landlordPhone}}</td>
     <td><b>Арендатор:</b><br/>Гр. РФ {{tenantFullName}} (ФИО)<br/>
+      Дата рождения: {{tenantBirthDate}}<br/>
       Адрес регистрации: {{tenantRegistrationAddress}}<br/>
       Паспорт серии {{tenantPassportSeries}} № {{tenantPassportNumber}}, выдан {{tenantPassportIssuedBy}}<br/>
       Тел.: {{tenantPhone}}</td>

@@ -84,6 +84,11 @@ export default function RegisterPage() {
           <p className="auth-divider">
             Уже есть аккаунт? <Link href="/login">Войти</Link>
           </p>
+          <p className="auth-policy">
+            <Link href="/legal/privacy">
+              Политика обработки персональных данных
+            </Link>
+          </p>
         </form>
       </div>
     </div>

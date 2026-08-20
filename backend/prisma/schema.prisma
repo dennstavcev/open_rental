@@ -393,6 +393,8 @@ model LeasePartyInfo {
   enteredBy   User       @relation(fields: [enteredById], references: [id])
   enteredById String
   dataEnc     String
+  consentAcceptedAt    DateTime?
+  consentPolicyVersion String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
