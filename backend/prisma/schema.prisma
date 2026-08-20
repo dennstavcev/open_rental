@@ -39,6 +39,7 @@ model User {
   leasesAsLandlord Lease[]           @relation("LandlordLeases")
   leasesAsTenant   Lease[]           @relation("TenantLeases")
   signedScans      LeaseSignedScan[]
+  partyInfoEntries LeasePartyInfo[]
   notifications    Notification[]
 
   @@map("users")
@@ -126,6 +127,7 @@ model Lease {
   messages            Message[]
   documents           LeaseDocument[]
   inventoryItems      LeaseInventoryItem[]
+  partyInfo           LeasePartyInfo[]
 
   @@index([propertyId])
   @@index([landlordId])
@@ -375,6 +377,28 @@ model LeaseSignedScan {
   @@unique([leaseId, role])
   @@index([leaseId])
   @@map("lease_signed_scans")
+}
+
+// Персональные данные стороны договора (ADR-0021, отменяет ADR-0017) —
+// паспорт/адрес регистрации/телефон/дата рождения. По одной записи на
+// (leaseId, role), по образцу LeaseSignedScan. dataEnc — JSON, зашифрован
+// field-level (CryptoService, AES-256-GCM). Печатается в LeaseDocument
+// (lease-contract.template.ts); удаляется фоновой задачей ретеншена
+// (3 года после окончания Lease, см. ADR-0021).
+model LeasePartyInfo {
+  id          String     @id @default(uuid())
+  lease       Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId     String
+  role        LeaseParty
+  enteredBy   User       @relation(fields: [enteredById], references: [id])
+  enteredById String
+  dataEnc     String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([leaseId, role])
+  @@index([leaseId])
+  @@map("lease_party_info")
 }
 
 enum TerminationStatus {

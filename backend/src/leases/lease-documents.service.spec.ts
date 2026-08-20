@@ -2,22 +2,27 @@ import { NotFoundException } from '@nestjs/common';
 import { LeaseDocumentsService } from './lease-documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from './leases.service';
+import { CryptoService } from '../crypto/crypto.service';
 
 const leaseWithRelations = {
   id: 'l1',
   landlordId: 'landlord1',
+  tenantId: 'tenant1',
   startDate: new Date(Date.UTC(2026, 7, 1)), // 1 авг 2026
   endDate: new Date(Date.UTC(2027, 6, 1)), // 1 июл 2027 → 11 месяцев
   rentAmount: 50000,
   depositAmount: 0,
   paymentDay: 20,
   property: { address: 'Москва, Тверская 1', areaSqm: 42 },
+  landlord: { fullName: 'Иванов Иван Иванович' },
+  tenant: { fullName: 'Петров Пётр Петрович' },
 };
 
 describe('LeaseDocumentsService', () => {
   let service: LeaseDocumentsService;
   let prisma: any;
   let leases: { getForUser: jest.Mock };
+  let crypto: { decrypt: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -27,15 +32,18 @@ describe('LeaseDocumentsService', () => {
         create: jest.fn().mockImplementation(({ data }) => ({ id: 'd1', ...data })),
       },
       leaseInventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
+      leasePartyInfo: { findMany: jest.fn().mockResolvedValue([]) },
     };
     leases = { getForUser: jest.fn() };
+    crypto = { decrypt: jest.fn() };
     service = new LeaseDocumentsService(
       prisma as unknown as PrismaService,
       leases as unknown as LeasesService,
+      crypto as unknown as CryptoService,
     );
   });
 
-  it('подставляет известные поля и оставляет прочерки для ПДн (ADR-0017)', async () => {
+  it('подставляет известные поля и ФИО сторон, паспорт — прочерк, пока не заполнен (ADR-0021)', async () => {
     prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
     prisma.leaseDocument.findFirst.mockResolvedValue(null);
 
@@ -47,10 +55,39 @@ describe('LeaseDocumentsService', () => {
     expect(doc.content).toContain('50000 рублей'); // аренда
     expect(doc.content).toContain('20 числа'); // день оплаты
     expect(doc.content).toContain('11 месяцев'); // срок
-    // ФИО и паспорт сервис не подставляет — только прочерки от руки.
-    expect(doc.content).not.toContain('Иванов Иван Иванович');
-    expect(doc.content).not.toContain('Петров Пётр Петрович');
-    expect(doc.content).toContain('Паспорт серии');
+    // ФИО сторон подставляется всегда (ADR-0021).
+    expect(doc.content).toContain('Иванов Иван Иванович');
+    expect(doc.content).toContain('Петров Пётр Петрович');
+    // Паспорт не заполнен ни одной из сторон — прочерк.
+    expect(doc.content).toContain('Паспорт серии ______');
+  });
+
+  it('подставляет паспорт/адрес/телефон стороны, если LeasePartyInfo заполнен (ADR-0021)', async () => {
+    prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
+    prisma.leaseDocument.findFirst.mockResolvedValue(null);
+    prisma.leasePartyInfo.findMany.mockResolvedValue([
+      { role: 'tenant', dataEnc: 'enc:tenant' },
+    ]);
+    crypto.decrypt.mockReturnValue(
+      JSON.stringify({
+        passportSeries: '4510',
+        passportNumber: '123456',
+        passportIssuedBy: 'ОУФМС района Тверской г. Москвы',
+        birthDate: '1995-05-20',
+        registrationAddress: 'Москва, ул. Ленина, д. 5, кв. 10',
+        phone: '+79991234567',
+      }),
+    );
+
+    const doc = await service.generate('landlord1', 'l1');
+
+    expect(crypto.decrypt).toHaveBeenCalledWith('enc:tenant');
+    expect(doc.content).toContain('Паспорт серии 4510 № 123456');
+    expect(doc.content).toContain('ОУФМС района Тверской г. Москвы');
+    expect(doc.content).toContain('Москва, ул. Ленина, д. 5, кв. 10');
+    expect(doc.content).toContain('+79991234567');
+    // Арендодатель ничего не заполнял — у него по-прежнему прочерк.
+    expect(doc.content).toContain('Паспорт серии ______');
   });
 
   it('версия инкрементируется', async () => {

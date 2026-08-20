@@ -1,16 +1,27 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as Handlebars from 'handlebars';
-import { LeaseDocument, LeaseDocumentKind } from '@prisma/client';
+import { LeaseDocument, LeaseDocumentKind, LeaseParty } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from './leases.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { toNumber } from '../billing/billing.util';
 import { LEASE_CONTRACT_TEMPLATE } from './templates/lease-contract.template';
 import { LEASE_HANDOVER_ACT_TEMPLATE } from './templates/lease-handover-act.template';
+import { PartyInfoDto } from '../party-info/dto/party-info.dto';
 
 const RU_MONTHS = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ];
+
+// Прочерки для незаполненных персональных полей (ADR-0021) — по длине как
+// в исходном шаблоне dogovor_arendy.docx.
+const BLANK_NAME = '____________________';
+const BLANK_ADDRESS = '____________________';
+const BLANK_SERIES = '______';
+const BLANK_NUMBER = '_________';
+const BLANK_ISSUED_BY = '____________________';
+const BLANK_PHONE = '________';
 
 @Injectable()
 export class LeaseDocumentsService {
@@ -24,22 +35,22 @@ export class LeaseDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
+    private readonly crypto: CryptoService,
   ) {}
 
-  // Генерация новой версии текста договора (только landlord).
-  //
-  // Сознательно не подставляет ФИО/паспорт/адрес сторон (ADR-0017, чтобы не
-  // попадать в периметр 152-ФЗ) — эти поля в шаблоне остаются прочерками для
-  // заполнения от руки, поэтому lease.landlord/lease.tenant здесь не нужны
-  // за пределами проверки владельца.
+  // Генерация новой версии текста договора (только landlord). Подставляет
+  // персональные данные сторон из LeasePartyInfo, если внесены (ADR-0021,
+  // отменяет ADR-0017); незаполненные поля — прочерк для заполнения от руки.
   async generate(userId: string, leaseId: string): Promise<LeaseDocument> {
     const lease = await this.prisma.lease.findUnique({
       where: { id: leaseId },
-      include: { property: true },
+      include: { property: true, landlord: true, tenant: true },
     });
     if (!lease || lease.landlordId !== userId) {
       throw new NotFoundException('Договор не найден');
     }
+
+    const partyInfo = await this.loadPartyInfo(leaseId);
 
     const content = this.contractTemplate({
       propertyAddress: lease.property.address,
@@ -54,6 +65,10 @@ export class LeaseDocumentsService {
       depositAmount: toNumber(lease.depositAmount),
       city: 'Москва',
       generatedDate: this.formatRuDate(new Date()),
+      landlordFullName: lease.landlord.fullName,
+      tenantFullName: lease.tenant?.fullName ?? BLANK_NAME,
+      ...this.partyTemplateFields('landlord', partyInfo.landlord),
+      ...this.partyTemplateFields('tenant', partyInfo.tenant),
     });
 
     return this.saveNextVersion(
@@ -62,6 +77,45 @@ export class LeaseDocumentsService {
       content,
       userId,
     );
+  }
+
+  // Читает и расшифровывает LeasePartyInfo обеих сторон договора (если
+  // внесены). Читает таблицу напрямую (не через PartyInfoService), чтобы не
+  // вводить зависимость модуля leases от party-info — по аналогии с тем, как
+  // billing.service.ts напрямую читает таблицы meters (см. комментарий там).
+  private async loadPartyInfo(
+    leaseId: string,
+  ): Promise<{ landlord: PartyInfoDto | null; tenant: PartyInfoDto | null }> {
+    const rows = await this.prisma.leasePartyInfo.findMany({
+      where: { leaseId },
+    });
+    const byRole = new Map(rows.map((row) => [row.role, row]));
+    const decrypt = (role: LeaseParty): PartyInfoDto | null => {
+      const row = byRole.get(role);
+      if (!row) {
+        return null;
+      }
+      return JSON.parse(this.crypto.decrypt(row.dataEnc)) as PartyInfoDto;
+    };
+    return {
+      landlord: decrypt(LeaseParty.landlord),
+      tenant: decrypt(LeaseParty.tenant),
+    };
+  }
+
+  // Строит поля шаблона для одной стороны (landlord/tenant) с прочерком
+  // вместо незаполненных значений.
+  private partyTemplateFields(
+    prefix: 'landlord' | 'tenant',
+    data: PartyInfoDto | null,
+  ): Record<string, string> {
+    return {
+      [`${prefix}RegistrationAddress`]: data?.registrationAddress ?? BLANK_ADDRESS,
+      [`${prefix}PassportSeries`]: data?.passportSeries ?? BLANK_SERIES,
+      [`${prefix}PassportNumber`]: data?.passportNumber ?? BLANK_NUMBER,
+      [`${prefix}PassportIssuedBy`]: data?.passportIssuedBy ?? BLANK_ISSUED_BY,
+      [`${prefix}Phone`]: data?.phone ?? BLANK_PHONE,
+    };
   }
 
   async getLatest(userId: string, leaseId: string): Promise<LeaseDocument> {
@@ -74,9 +128,9 @@ export class LeaseDocumentsService {
   }
 
   // Генерация новой версии Приложения №1 — акта приёма-передачи имущества
-  // (ADR-0018). Опись берётся из LeaseInventoryItem на момент генерации;
-  // как и в generate(), персональные данные сторон не подставляются
-  // (ADR-0017) — только описание вещей.
+  // (ADR-0018, не затронут пересмотром ADR-0017→ADR-0021). Опись берётся
+  // из LeaseInventoryItem на момент генерации; персональные данные сторон
+  // здесь по-прежнему не участвуют — только описание передаваемых вещей.
   async generateHandoverAct(
     userId: string,
     leaseId: string,
