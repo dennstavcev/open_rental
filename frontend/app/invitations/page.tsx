@@ -5,6 +5,7 @@ import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
 import { EmptyState, Icon, PageHeader } from '@/components/ui';
 import { ApiError } from '@/lib/api';
+import { formatMoney } from '@/lib/format';
 import {
   acceptInvitation,
   declineInvitation,
@@ -68,9 +69,23 @@ function InvitationsInner() {
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 'var(--weight-semibold)' }}>
-                    Приглашение на договор
+                    {inv.property.address}
                   </div>
-                  <div className="muted">{inv.invitedEmail}</div>
+                  <div className="muted">
+                    Приглашает {inv.landlord.fullName} · {inv.landlord.email}
+                  </div>
+                </div>
+              </div>
+              <div className="facts" style={{ marginTop: 14 }}>
+                <div className="fact">
+                  <div className="k">АРЕНДА</div>
+                  <div className="v">{formatMoney(inv.lease.rentAmount)} ₽/мес</div>
+                </div>
+                <div className="fact">
+                  <div className="k">СРОК</div>
+                  <div className="v">
+                    {inv.lease.startDate.slice(0, 10)} — {inv.lease.endDate.slice(0, 10)}
+                  </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>

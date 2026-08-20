@@ -7,11 +7,11 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { Invitation, Lease } from '@prisma/client';
+import { Lease } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { LeasesService } from './leases.service';
+import { InvitationView, LeasesService } from './leases.service';
 
 @Controller('invitations')
 @UseGuards(JwtAuthGuard)
@@ -20,7 +20,7 @@ export class InvitationsController {
 
   // Приглашения, адресованные текущему пользователю (кабинет арендатора).
   @Get()
-  listMine(@CurrentUser() user: AuthenticatedUser): Promise<Invitation[]> {
+  listMine(@CurrentUser() user: AuthenticatedUser): Promise<InvitationView[]> {
     return this.leases.listMyInvitations(user.email);
   }
 

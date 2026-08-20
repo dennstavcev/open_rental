@@ -12,6 +12,15 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { UpdateLeaseDto } from './dto/update-lease.dto';
 
+// Приглашение вместе с контекстом: кто пригласил и на какой объект. Без
+// этого в карточке приглашения нечего показать, кроме email самого
+// приглашённого — он и так знает свой email.
+export type InvitationView = Invitation & {
+  landlord: { fullName: string; email: string };
+  property: { address: string };
+  lease: Pick<Lease, 'startDate' | 'endDate' | 'rentAmount'>;
+};
+
 @Injectable()
 export class LeasesService {
   constructor(
@@ -138,11 +147,29 @@ export class LeasesService {
   }
 
   // Приглашения, адресованные текущему пользователю (по email), в ожидании.
-  listMyInvitations(userEmail: string): Promise<Invitation[]> {
-    return this.prisma.invitation.findMany({
+  async listMyInvitations(userEmail: string): Promise<InvitationView[]> {
+    const invitations = await this.prisma.invitation.findMany({
       where: { invitedEmail: userEmail.toLowerCase(), status: 'pending' },
       orderBy: { createdAt: 'desc' },
+      include: {
+        lease: {
+          include: {
+            landlord: { select: { fullName: true, email: true } },
+            property: { select: { address: true } },
+          },
+        },
+      },
     });
+    return invitations.map(({ lease, ...invitation }) => ({
+      ...invitation,
+      landlord: lease.landlord,
+      property: lease.property,
+      lease: {
+        startDate: lease.startDate,
+        endDate: lease.endDate,
+        rentAmount: lease.rentAmount,
+      },
+    }));
   }
 
   async acceptInvitation(

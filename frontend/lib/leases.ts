@@ -30,6 +30,11 @@ export interface Invitation {
   leaseId: string;
   invitedEmail: string;
   status: 'pending' | 'accepted' | 'declined';
+  // Контекст приглашения: кто позвал и на какой объект/условия — свой
+  // собственный email приглашённому ни о чём не говорит.
+  landlord: { fullName: string; email: string };
+  property: { address: string };
+  lease: { startDate: string; endDate: string; rentAmount: string };
 }
 
 export function listLeases(): Promise<Lease[]> {

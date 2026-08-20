@@ -58,7 +58,7 @@ function DashboardInner() {
       key: `inv-${inv.id}`,
       icon: 'mail',
       title: 'Примите приглашение',
-      subtitle: 'Станьте арендатором по договору',
+      subtitle: `${inv.property.address} · ${inv.landlord.fullName}`,
       href: '/invitations',
     }));
     if (notes.some((n) => !n.readAt)) {

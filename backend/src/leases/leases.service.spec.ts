@@ -156,6 +156,41 @@ describe('LeasesService', () => {
     });
   });
 
+  describe('listMyInvitations', () => {
+    it('отдаёт, кто пригласил и на какой объект (не только свой email)', async () => {
+      prisma.invitation.findMany.mockResolvedValue([
+        {
+          id: 'inv1',
+          leaseId: 'l1',
+          invitedEmail: 'tenant@mail.ru',
+          status: 'pending',
+          lease: {
+            landlord: { fullName: 'Иван Петров', email: 'landlord@x.ru' },
+            property: { address: 'Москва, Тверская 1' },
+            startDate: new Date('2026-09-01'),
+            endDate: new Date('2027-09-01'),
+            rentAmount: 50000,
+          },
+        },
+      ]);
+
+      const [inv] = await service.listMyInvitations('Tenant@Mail.ru');
+      // email приглашённого нормализуется в нижний регистр при поиске.
+      expect(prisma.invitation.findMany.mock.calls[0][0].where.invitedEmail).toBe(
+        'tenant@mail.ru',
+      );
+      expect(inv.landlord).toEqual({
+        fullName: 'Иван Петров',
+        email: 'landlord@x.ru',
+      });
+      expect(inv.property.address).toBe('Москва, Тверская 1');
+      expect(inv.lease.rentAmount).toBe(50000);
+      // Вложенный lease не протекает в ответ целиком.
+      expect((inv as unknown as { lease: { landlord?: unknown } }).lease.landlord)
+        .toBeUndefined();
+    });
+  });
+
   describe('acceptInvitation', () => {
     const user = { id: 'tenant1', email: 'tenant@mail.ru' };
 

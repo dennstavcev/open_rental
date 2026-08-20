@@ -416,8 +416,11 @@ export class BillingService {
     periodStart: Date,
     periodEnd: Date,
   ): Promise<{ id: string; name: string } | null> {
+    // Только активные счётчики: отключённый (ADR-0014) не принимает новые
+    // показания в MeterReadingsService.create — если бы он попадал сюда,
+    // счёт по объекту нельзя было бы финализировать никогда.
     const meters = await this.prisma.meter.findMany({
-      where: { propertyId },
+      where: { propertyId, isActive: true },
       select: { id: true, name: true },
     });
     for (const meter of meters) {

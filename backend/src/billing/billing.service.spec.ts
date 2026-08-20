@@ -120,6 +120,26 @@ describe('BillingService', () => {
       );
       expect(prisma.bill.update).not.toHaveBeenCalled();
     });
+
+    it('отключённый счётчик не блокирует счёт', async () => {
+      prisma.bill.findUnique.mockResolvedValue(makeBill());
+      // На объекте единственный счётчик, и он отключён (ADR-0014): показание
+      // по нему подать уже нельзя, значит и требовать его нельзя — иначе счёт
+      // не сформировать никогда. Мок ведёт себя как БД: фильтрует по isActive.
+      prisma.meter.findMany.mockImplementation(
+        ({ where }: { where: { isActive?: boolean } }) =>
+          Promise.resolve(
+            where.isActive ? [] : [{ id: 'm1', name: 'Электро' }],
+          ),
+      );
+      prisma.meterReading.findFirst.mockResolvedValue(null);
+
+      await service.finalize(LANDLORD, 'b1');
+      expect(prisma.bill.update).toHaveBeenCalledWith({
+        where: { id: 'b1' },
+        data: { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending },
+      });
+    });
   });
 
   describe('runPeriodTransition', () => {
