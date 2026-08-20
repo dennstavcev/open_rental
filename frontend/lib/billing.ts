@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, apiFetchBlob } from './api';
 
 export type BillStage = 'draft' | 'final';
 export type BillPaymentStatus = 'pending' | 'payment_claimed' | 'paid';
@@ -8,6 +8,12 @@ export interface BillLineItem {
   kind: string;
   title: string;
   amount: string;
+}
+
+export interface PaymentProof {
+  id: string;
+  mimeType: string;
+  uploadedAt: string;
 }
 
 export interface Bill {
@@ -20,6 +26,9 @@ export interface Bill {
   penaltyWaived: boolean;
   lineItems: BillLineItem[];
   payment: { amount: string; confirmedAt: string } | null;
+  // Чек об оплате от арендатора (ADR-0019) — обязателен при заявлении
+  // оплаты, виден обеим сторонам и после подтверждения.
+  paymentProof: PaymentProof | null;
 }
 
 export interface BillView {
@@ -48,8 +57,19 @@ export function finalizeBill(billId: string): Promise<BillView> {
   return apiFetch(`/bills/${billId}/finalize`, { method: 'POST' });
 }
 
-export function claimPaid(billId: string): Promise<BillView> {
-  return apiFetch(`/bills/${billId}/claim-paid`, { method: 'POST' });
+// Заявление об оплате + чек одним действием (ADR-0019). Повторный вызов до
+// подтверждения оплаты заменяет чек.
+export function claimPaid(billId: string, proof: File): Promise<BillView> {
+  const form = new FormData();
+  form.append('file', proof);
+  return apiFetch(`/bills/${billId}/claim-paid`, {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export function downloadPaymentProof(billId: string): Promise<Blob> {
+  return apiFetchBlob(`/bills/${billId}/payment-proof/file`);
 }
 
 export function confirmPaid(billId: string): Promise<BillView> {

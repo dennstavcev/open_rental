@@ -1,9 +1,14 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { BillPaymentStatus, BillStage } from '@prisma/client';
 import { BillingService } from './billing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { StorageProvider } from '../storage/storage-provider.interface';
 
 const LANDLORD = 'landlord1';
 const TENANT = 'tenant1';
@@ -22,6 +27,7 @@ function makeBill(overrides: Record<string, unknown> = {}) {
     penaltyWaivedAmount: null,
     lineItems: [{ amount: 50000 }],
     payment: null,
+    paymentProof: null,
     lease: {
       id: 'l1',
       propertyId: 'p1',
@@ -40,6 +46,12 @@ describe('BillingService', () => {
   let prisma: any;
   let leases: { getForUser: jest.Mock };
   let notifications: { notify: jest.Mock };
+  let storage: {
+    put: jest.Mock;
+    get: jest.Mock;
+    delete: jest.Mock;
+    getUrl: jest.Mock;
+  };
 
   beforeEach(() => {
     prisma = {
@@ -52,6 +64,7 @@ describe('BillingService', () => {
       },
       billLineItem: { create: jest.fn().mockResolvedValue({}) },
       payment: { create: jest.fn().mockResolvedValue({}) },
+      paymentProof: { upsert: jest.fn().mockResolvedValue({}) },
       service: { findMany: jest.fn().mockResolvedValue([]) },
       // Гард показаний: по умолчанию счётчиков нет → финализация проходит.
       meter: { findMany: jest.fn().mockResolvedValue([]) },
@@ -60,10 +73,17 @@ describe('BillingService', () => {
     };
     leases = { getForUser: jest.fn() };
     notifications = { notify: jest.fn().mockResolvedValue({}) };
+    storage = {
+      put: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn().mockResolvedValue(Buffer.from('file')),
+      delete: jest.fn().mockResolvedValue(undefined),
+      getUrl: jest.fn().mockReturnValue('/uploads/x'),
+    };
     service = new BillingService(
       prisma as unknown as PrismaService,
       leases as unknown as LeasesService,
       notifications as unknown as NotificationsService,
+      storage as unknown as StorageProvider,
     );
   });
 
@@ -245,15 +265,23 @@ describe('BillingService', () => {
   });
 
   describe('claimPaid', () => {
-    it('tenant заявляет оплату по pending-счёту', async () => {
+    const proof = { buffer: Buffer.from('чек'), mimetype: 'image/png' };
+
+    it('tenant заявляет оплату по pending-счёту, чек уходит в хранилище', async () => {
       prisma.bill.findUnique.mockResolvedValue(
         makeBill({ stage: BillStage.final, paymentStatus: BillPaymentStatus.pending }),
       );
-      await service.claimPaid(TENANT, 'b1');
+      await service.claimPaid(TENANT, 'b1', proof);
       expect(prisma.bill.update).toHaveBeenCalledWith({
         where: { id: 'b1' },
         data: { paymentStatus: BillPaymentStatus.payment_claimed },
       });
+      expect(storage.put).toHaveBeenCalledWith(
+        expect.stringMatching(/^bills\/b1\/proof-.+\.png$/),
+        proof.buffer,
+        'image/png',
+      );
+      expect(prisma.paymentProof.upsert).toHaveBeenCalled();
       // Собственнику уходит уведомление «проверьте оплату».
       expect(notifications.notify).toHaveBeenCalledWith(
         LANDLORD,
@@ -261,11 +289,92 @@ describe('BillingService', () => {
       );
     });
 
+    it('чек недопустимого типа → BadRequest, статус не меняется', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({ stage: BillStage.final, paymentStatus: BillPaymentStatus.pending }),
+      );
+      await expect(
+        service.claimPaid(TENANT, 'b1', {
+          buffer: Buffer.from('x'),
+          mimetype: 'text/plain',
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.bill.update).not.toHaveBeenCalled();
+      expect(storage.put).not.toHaveBeenCalled();
+    });
+
+    it('повторное заявление заменяет чек и удаляет старый файл', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({
+          stage: BillStage.final,
+          paymentStatus: BillPaymentStatus.payment_claimed,
+          paymentProof: { storageKey: 'bills/b1/proof-old.png' },
+        }),
+      );
+      await service.claimPaid(TENANT, 'b1', proof);
+      expect(storage.delete).toHaveBeenCalledWith('bills/b1/proof-old.png');
+      expect(notifications.notify).toHaveBeenCalledWith(
+        LANDLORD,
+        expect.objectContaining({ type: 'payment_claimed' }),
+      );
+    });
+
+    it('по уже оплаченному счёту заявить нельзя → Conflict', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({ stage: BillStage.final, paymentStatus: BillPaymentStatus.paid }),
+      );
+      await expect(
+        service.claimPaid(TENANT, 'b1', proof),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(storage.put).not.toHaveBeenCalled();
+    });
+
     it('landlord не может заявлять оплату → Forbidden', async () => {
       prisma.bill.findUnique.mockResolvedValue(
         makeBill({ stage: BillStage.final, paymentStatus: BillPaymentStatus.pending }),
       );
-      await expect(service.claimPaid(LANDLORD, 'b1')).rejects.toThrow();
+      await expect(service.claimPaid(LANDLORD, 'b1', proof)).rejects.toThrow();
+    });
+  });
+
+  describe('чек об оплате (ADR-0019)', () => {
+    it('обе стороны видят чек, в том числе после оплаты', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({
+          stage: BillStage.final,
+          paymentStatus: BillPaymentStatus.paid,
+          paymentProof: { storageKey: 'bills/b1/proof.png', mimeType: 'image/png' },
+        }),
+      );
+      const asLandlord = await service.getPaymentProof(LANDLORD, 'b1');
+      const asTenant = await service.getPaymentProof(TENANT, 'b1');
+      expect(asLandlord.storageKey).toBe('bills/b1/proof.png');
+      expect(asTenant.storageKey).toBe('bills/b1/proof.png');
+
+      const file = await service.downloadPaymentProof(TENANT, 'b1');
+      expect(storage.get).toHaveBeenCalledWith('bills/b1/proof.png');
+      expect(file.mimeType).toBe('image/png');
+    });
+
+    it('посторонний не получает чек → NotFound', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({
+          stage: BillStage.final,
+          paymentProof: { storageKey: 'bills/b1/proof.png', mimeType: 'image/png' },
+        }),
+      );
+      await expect(
+        service.getPaymentProof('stranger', 'b1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('чека нет → NotFound', async () => {
+      prisma.bill.findUnique.mockResolvedValue(
+        makeBill({ stage: BillStage.final }),
+      );
+      await expect(
+        service.getPaymentProof(TENANT, 'b1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 

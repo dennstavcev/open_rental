@@ -18,20 +18,26 @@ datasource db {
 // Роль пользователя НЕ хранится на профиле — определяется по связям
 // (Property.ownerId / Lease.tenantId). См. docs/ARCHITECTURE.md, User.
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  fullName     String
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String
+  fullName       String
   // Системная роль сотрудника сервиса (не landlord/tenant). Право удаления
   // сообщений/сканов. Выдаётся вручную, не через публичную регистрацию.
-  isSuperAdmin Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isSuperAdmin   Boolean  @default(false)
+  // Реквизиты для перевода арендной платы (ADR-0019). Данные аккаунта, не
+  // поля договора — в текст договора не подставляются (ADR-0017). Поля под
+  // номер карты сознательно нет, см. ADR-0019 и PRODUCT_QUESTIONS 7.5.
+  payoutPhone    String?
+  payoutBankName String?
+  payoutNote     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  properties    Property[]
-  leasesAsLandlord Lease[] @relation("LandlordLeases")
-  leasesAsTenant   Lease[] @relation("TenantLeases")
+  refreshTokens    RefreshToken[]
+  properties       Property[]
+  leasesAsLandlord Lease[]           @relation("LandlordLeases")
+  leasesAsTenant   Lease[]           @relation("TenantLeases")
   signedScans      LeaseSignedScan[]
   notifications    Notification[]
 
@@ -71,9 +77,9 @@ model Property {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  services  Service[]
-  meters    Meter[]
-  leases    Lease[]
+  services Service[]
+  meters   Meter[]
+  leases   Lease[]
 
   @@index([ownerId])
   @@map("properties")
@@ -90,36 +96,36 @@ enum LeaseStatus {
 // один tenant. На Property не более одного active-договора одновременно.
 // Активация (sent→active) через сканы LeaseDocument — отдельный инкремент.
 model Lease {
-  id         String      @id @default(uuid())
-  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  propertyId String
-  landlord   User        @relation("LandlordLeases", fields: [landlordId], references: [id])
-  landlordId String
-  tenant     User?       @relation("TenantLeases", fields: [tenantId], references: [id])
-  tenantId   String?
-  startDate  DateTime
-  endDate    DateTime
-  rentAmount Decimal     @db.Decimal(12, 2)
-  depositAmount Decimal  @default(0) @db.Decimal(12, 2)
+  id                       String      @id @default(uuid())
+  property                 Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId               String
+  landlord                 User        @relation("LandlordLeases", fields: [landlordId], references: [id])
+  landlordId               String
+  tenant                   User?       @relation("TenantLeases", fields: [tenantId], references: [id])
+  tenantId                 String?
+  startDate                DateTime
+  endDate                  DateTime
+  rentAmount               Decimal     @db.Decimal(12, 2)
+  depositAmount            Decimal     @default(0) @db.Decimal(12, 2)
   // День месяца (1–28) — дата оплаты, граница расчётного периода.
-  paymentDay Int
+  paymentDay               Int
   // Ставка пени за просрочку оплаты — % от суммы счёта за день.
-  penaltyRatePercentPerDay Decimal @db.Decimal(5, 2)
-  status     LeaseStatus @default(draft)
+  penaltyRatePercentPerDay Decimal     @db.Decimal(5, 2)
+  status                   LeaseStatus @default(draft)
   // Заполняются при расторжении (termination).
-  effectiveEndDate     DateTime?
-  depositReturnAmount  Decimal?  @db.Decimal(12, 2)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  effectiveEndDate         DateTime?
+  depositReturnAmount      Decimal?    @db.Decimal(12, 2)
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
 
-  invitations Invitation[]
+  invitations         Invitation[]
   terminationRequests TerminationRequest[]
-  signedScans LeaseSignedScan[]
-  bills       Bill[]
+  signedScans         LeaseSignedScan[]
+  bills               Bill[]
   maintenanceRequests MaintenanceRequest[]
-  messages    Message[]
-  documents   LeaseDocument[]
-  inventoryItems LeaseInventoryItem[]
+  messages            Message[]
+  documents           LeaseDocument[]
+  inventoryItems      LeaseInventoryItem[]
 
   @@index([propertyId])
   @@index([landlordId])
@@ -174,18 +180,18 @@ model LeaseInventoryItem {
 // Сообщение в переписке по договору (docs/ARCHITECTURE.md, Message). Без
 // realtime (ADR-0009). Удаление — только SuperAdmin (не реализовано).
 model Message {
-  id        String   @id @default(uuid())
-  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId   String
-  senderId  String
-  body      String
-  isOfficial Boolean @default(false)
+  id                   String    @id @default(uuid())
+  lease                Lease     @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId              String
+  senderId             String
+  body                 String
+  isOfficial           Boolean   @default(false)
   // Опциональное вложение (файл через StorageProvider).
   attachmentStorageKey String?
   attachmentMime       String?
   attachmentName       String?
-  editedAt  DateTime?
-  createdAt DateTime @default(now())
+  editedAt             DateTime?
+  createdAt            DateTime  @default(now())
 
   @@index([leaseId])
   @@map("messages")
@@ -207,20 +213,20 @@ enum SettlementPayer {
 // Обычную заявку создаёт только tenant; landlord ведёт статус. Сумма
 // урегулирования — по двустороннему подтверждению → строка в счёт.
 model MaintenanceRequest {
-  id          String            @id @default(uuid())
-  lease       Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId     String
-  createdById String
-  category    String
-  description String
-  status      MaintenanceStatus @default(open)
+  id              String            @id @default(uuid())
+  lease           Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId         String
+  createdById     String
+  category        String
+  description     String
+  status          MaintenanceStatus @default(open)
   photoStorageKey String?
 
-  settlementAmount           Decimal?         @db.Decimal(12, 2)
-  settlementPayer            SettlementPayer?
-  confirmedByTenant          Boolean          @default(false)
-  confirmedByLandlord        Boolean          @default(false)
-  settlementAppliedAt        DateTime?
+  settlementAmount    Decimal?         @db.Decimal(12, 2)
+  settlementPayer     SettlementPayer?
+  confirmedByTenant   Boolean          @default(false)
+  confirmedByLandlord Boolean          @default(false)
+  settlementAppliedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -244,32 +250,51 @@ enum BillPaymentStatus {
 
 // Счёт по Lease за расчётный период (docs/ARCHITECTURE.md, Bill).
 model Bill {
-  id            String             @id @default(uuid())
-  lease         Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId       String
-  stage         BillStage          @default(draft)
-  paymentStatus BillPaymentStatus?
-  periodStart   DateTime
-  periodEnd     DateTime
-  dueDate       DateTime
+  id                       String             @id @default(uuid())
+  lease                    Lease              @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId                  String
+  stage                    BillStage          @default(draft)
+  paymentStatus            BillPaymentStatus?
+  periodStart              DateTime
+  periodEnd                DateTime
+  dueDate                  DateTime
   // Снимок ставки пени с договора на момент создания счёта.
-  penaltyRatePercentPerDay Decimal @db.Decimal(5, 2)
+  penaltyRatePercentPerDay Decimal            @db.Decimal(5, 2)
   // Прощение пени (landlord, одностороннее, необратимо).
-  penaltyWaived       Boolean   @default(false)
-  penaltyWaivedAmount Decimal?  @db.Decimal(12, 2)
-  penaltyWaivedAt     DateTime?
-  paidAt        DateTime?
+  penaltyWaived            Boolean            @default(false)
+  penaltyWaivedAmount      Decimal?           @db.Decimal(12, 2)
+  penaltyWaivedAt          DateTime?
+  paidAt                   DateTime?
   // Задел под будущий эквайринг СБП (ADR-0011), в MVP всегда null.
-  paymentLink   String?
-  qrPayload     String?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  paymentLink              String?
+  qrPayload                String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
 
-  lineItems BillLineItem[]
-  payment   Payment?
+  lineItems    BillLineItem[]
+  payment      Payment?
+  paymentProof PaymentProof?
 
   @@index([leaseId])
   @@map("bills")
+}
+
+// Подтверждение оплаты от арендатора (ADR-0019) — чек/скриншот перевода,
+// приложенный к заявлению «Я оплатил». Отдельно от Payment: Payment — это
+// уже подтверждённое арендодателем получение денег (ADR-0012), он
+// появляется позже. Один актуальный чек на счёт; замена, пока счёт не
+// оплачен, удаляет предыдущий файл из хранилища. Файл — через
+// StorageProvider (ADR-0007), в БД только метаданные + ключ.
+model PaymentProof {
+  id           String   @id @default(uuid())
+  bill         Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+  billId       String   @unique
+  storageKey   String
+  mimeType     String
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  @@map("payment_proofs")
 }
 
 enum BillItemKind {
@@ -361,18 +386,18 @@ enum TerminationStatus {
 // Заявка на расторжение (docs/ARCHITECTURE.md, категория termination).
 // Инициирует любая сторона (min 30 дней), финализирует только landlord.
 model TerminationRequest {
-  id           String            @id @default(uuid())
-  lease        Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId      String
-  initiatedById String
+  id                       String            @id @default(uuid())
+  lease                    Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId                  String
+  initiatedById            String
   requestedTerminationDate DateTime
-  reason       String?
-  status       TerminationStatus @default(pending)
-  periodEndOverride DateTime?
-  finalizedById String?
-  finalizedAt  DateTime?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  reason                   String?
+  status                   TerminationStatus @default(pending)
+  periodEndOverride        DateTime?
+  finalizedById            String?
+  finalizedAt              DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
 
   @@index([leaseId])
   @@map("termination_requests")
@@ -436,26 +461,26 @@ enum MeterType {
 // (MeterReading) добавляются в модуле биллинга.
 // serialNumber/isActive/initialReading — ADR-0014.
 model Meter {
-  id         String    @id @default(uuid())
-  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  propertyId String
-  meterType  MeterType
-  name       String
+  id                 String    @id @default(uuid())
+  property           Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId         String
+  meterType          MeterType
+  name               String
   // Серийный номер физического прибора — для сверки/поверки, опционально.
-  serialNumber String?
-  tariff     Decimal   @db.Decimal(12, 4)
+  serialNumber       String?
+  tariff             Decimal   @db.Decimal(12, 4)
   // Отключённый счётчик не принимает новые показания, но история не теряется.
-  isActive   Boolean   @default(true)
+  isActive           Boolean   @default(true)
   // Значение на момент постановки на учёт — база для расчёта расхода
   // первого показания вместо 0 (ADR-0014). Неизменяемо после создания.
-  initialReading Decimal @db.Decimal(12, 3)
+  initialReading     Decimal   @db.Decimal(12, 3)
   // Дата очередной метрологической поверки — информационно (ADR-0015),
   // подача показаний по ней не блокируется.
   calibrationDueDate DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  readings   MeterReading[]
+  readings MeterReading[]
 
   @@index([propertyId])
   @@map("meters")
@@ -465,17 +490,17 @@ model Meter {
 // (через StorageProvider). `value` — подтверждённое пользователем значение
 // (расчётное), `ocrValue` — что вернул OCR (в MVP замокан → обычно null).
 model MeterReading {
-  id             String   @id @default(uuid())
-  meter          Meter    @relation(fields: [meterId], references: [id], onDelete: Cascade)
-  meterId        String
+  id              String   @id @default(uuid())
+  meter           Meter    @relation(fields: [meterId], references: [id], onDelete: Cascade)
+  meterId         String
   // Договор, в чей расчётный период попадает показание.
-  leaseId        String
-  value          Decimal  @db.Decimal(12, 3)
-  ocrValue       Decimal? @db.Decimal(12, 3)
+  leaseId         String
+  value           Decimal  @db.Decimal(12, 3)
+  ocrValue        Decimal? @db.Decimal(12, 3)
   photoStorageKey String
-  enteredById    String
-  readingDate    DateTime @default(now())
-  createdAt      DateTime @default(now())
+  enteredById     String
+  readingDate     DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   @@index([meterId])
   @@index([leaseId])

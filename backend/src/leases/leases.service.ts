@@ -15,6 +15,15 @@ import { UpdateLeaseDto } from './dto/update-lease.dto';
 // Приглашение вместе с контекстом: кто пригласил и на какой объект. Без
 // этого в карточке приглашения нечего показать, кроме email самого
 // приглашённого — он и так знает свой email.
+// Реквизиты арендодателя по договору (ADR-0019) — арендатору, чтобы было
+// куда платить. В текст договора не подставляются (ADR-0017).
+export interface PayoutDetailsView {
+  payoutPhone: string | null;
+  payoutBankName: string | null;
+  payoutNote: string | null;
+  filled: boolean;
+}
+
 export type InvitationView = Invitation & {
   landlord: { fullName: string; email: string };
   property: { address: string };
@@ -170,6 +179,32 @@ export class LeasesService {
         rentAmount: lease.rentAmount,
       },
     }));
+  }
+
+  async getPayoutDetails(
+    userId: string,
+    leaseId: string,
+  ): Promise<PayoutDetailsView> {
+    const lease = await this.getForUser(userId, leaseId); // сторона договора
+    const landlord = await this.prisma.user.findUnique({
+      where: { id: lease.landlordId },
+      select: {
+        payoutPhone: true,
+        payoutBankName: true,
+        payoutNote: true,
+      },
+    });
+    if (!landlord) {
+      throw new NotFoundException('Арендодатель не найден');
+    }
+    return {
+      ...landlord,
+      // Флаг для фронта: показывать блок «куда платить» или подсказку
+      // арендодателю, что реквизиты не заполнены.
+      filled: Boolean(
+        landlord.payoutPhone || landlord.payoutBankName || landlord.payoutNote,
+      ),
+    };
   }
 
   async acceptInvitation(

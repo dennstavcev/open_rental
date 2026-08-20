@@ -74,6 +74,19 @@ export function declineInvitation(id: string): Promise<unknown> {
   return apiFetch(`/invitations/${id}/decline`, { method: 'POST' });
 }
 
+// Реквизиты арендодателя по договору (ADR-0019): арендатору — куда платить,
+// арендодателю — что увидит арендатор.
+export interface PayoutDetails {
+  payoutPhone: string | null;
+  payoutBankName: string | null;
+  payoutNote: string | null;
+  filled: boolean;
+}
+
+export function getPayoutDetails(leaseId: string): Promise<PayoutDetails> {
+  return apiFetch<PayoutDetails>(`/leases/${leaseId}/payout-details`);
+}
+
 export interface LeaseDocument {
   id: string;
   version: number;

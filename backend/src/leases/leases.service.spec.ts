@@ -191,6 +191,51 @@ describe('LeasesService', () => {
     });
   });
 
+  describe('getPayoutDetails', () => {
+    it('арендатор видит реквизиты арендодателя по договору', async () => {
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+        tenantId: 'tenant1',
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        payoutPhone: '+7 900 000-00-00',
+        payoutBankName: 'Т-Банк',
+        payoutNote: null,
+      });
+
+      const res = await service.getPayoutDetails('tenant1', 'l1');
+      expect(res.payoutPhone).toBe('+7 900 000-00-00');
+      expect(res.filled).toBe(true);
+    });
+
+    it('незаполненные реквизиты → filled=false', async () => {
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+        tenantId: 'tenant1',
+      });
+      prisma.user.findUnique.mockResolvedValue({
+        payoutPhone: null,
+        payoutBankName: null,
+        payoutNote: null,
+      });
+      const res = await service.getPayoutDetails('u1', 'l1');
+      expect(res.filled).toBe(false);
+    });
+
+    it('посторонний не видит реквизиты → NotFound', async () => {
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+        tenantId: 'tenant1',
+      });
+      await expect(
+        service.getPayoutDetails('stranger', 'l1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('acceptInvitation', () => {
     const user = { id: 'tenant1', email: 'tenant@mail.ru' };
 

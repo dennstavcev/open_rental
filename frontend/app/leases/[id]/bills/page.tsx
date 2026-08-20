@@ -1,36 +1,46 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
-import { EmptyState, LeaseTabs, PageHeader, Sheet } from '@/components/ui';
+import { EmptyState, LeaseTabs, PageHeader, Section, Sheet } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { getLease, Lease } from '@/lib/leases';
+import { getLease, getPayoutDetails, Lease, PayoutDetails } from '@/lib/leases';
 import {
   addLineItem,
   BillView,
   claimPaid,
   confirmPaid,
+  downloadPaymentProof,
   finalizeBill,
   listBills,
   PAYMENT_STATUS_LABEL,
   waivePenalty,
 } from '@/lib/billing';
+import { copyText } from '@/lib/clipboard';
 import { formatMoney } from '@/lib/format';
 import { usePolling } from '@/lib/usePolling';
 
 function BillsInner() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, savePayoutDetails } = useAuth();
   const [lease, setLease] = useState<Lease | null>(null);
   const [bills, setBills] = useState<BillView[]>([]);
+  const [payout, setPayout] = useState<PayoutDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sheetBill, setSheetBill] = useState<string | null>(null);
   const [lineTitle, setLineTitle] = useState('');
   const [lineAmount, setLineAmount] = useState('');
+  const [claimBill, setClaimBill] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const [payoutSheet, setPayoutSheet] = useState(false);
+  const [pPhone, setPPhone] = useState('');
+  const [pBank, setPBank] = useState('');
+  const [pNote, setPNote] = useState('');
+  const proofRef = useRef<HTMLInputElement>(null);
 
   const isLandlord = !!lease && lease.tenantId !== user?.id;
   const isTenant = !!lease && lease.tenantId === user?.id;
@@ -38,9 +48,14 @@ function BillsInner() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [l, b] = await Promise.all([getLease(id), listBills(id)]);
+      const [l, b, p] = await Promise.all([
+        getLease(id),
+        listBills(id),
+        getPayoutDetails(id).catch(() => null),
+      ]);
       setLease(l);
       setBills(b);
+      setPayout(p);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     }
@@ -74,6 +89,65 @@ function BillsInner() {
     setSheetBill(null);
   }
 
+  // Заявление об оплате без чека невозможно (ADR-0019) — файл обязателен и
+  // здесь, и на бэкенде.
+  async function onClaim(e: FormEvent) {
+    e.preventDefault();
+    const billId = claimBill;
+    const file = proofRef.current?.files?.[0];
+    if (!billId || !file) return;
+    await run(() => claimPaid(billId, file));
+    if (proofRef.current) proofRef.current.value = '';
+    setClaimBill(null);
+  }
+
+  async function openProof(billId: string) {
+    setError(null);
+    try {
+      const blob = await downloadPaymentProof(billId);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось открыть чек');
+    }
+  }
+
+  async function copy(value: string, key: string) {
+    if (!(await copyText(value))) {
+      setError('Не удалось скопировать — выделите значение вручную');
+      return;
+    }
+    setError(null);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  function openPayoutSheet() {
+    setPPhone(user?.payoutPhone ?? '');
+    setPBank(user?.payoutBankName ?? '');
+    setPNote(user?.payoutNote ?? '');
+    setPayoutSheet(true);
+  }
+
+  async function onSavePayout(e: FormEvent) {
+    e.preventDefault();
+    await run(async () => {
+      await savePayoutDetails({
+        payoutPhone: pPhone,
+        payoutBankName: pBank,
+        payoutNote: pNote,
+      });
+    });
+    setPayoutSheet(false);
+  }
+
+  const payoutRows: { key: string; label: string; value: string }[] = payout
+    ? [
+        { key: 'phone', label: 'Телефон (СБП)', value: payout.payoutPhone ?? '' },
+        { key: 'bank', label: 'Банк', value: payout.payoutBankName ?? '' },
+        { key: 'note', label: 'Комментарий', value: payout.payoutNote ?? '' },
+      ].filter((r) => r.value)
+    : [];
+
   return (
     <>
       <TopBar />
@@ -81,6 +155,50 @@ function BillsInner() {
         <PageHeader back={`/leases/${id}`} title="Счета" subtitle="Расчётные периоды и оплата" />
         <LeaseTabs id={id} />
         {error && <div className="error">{error}</div>}
+
+        {lease && (
+          <Section
+            title="Куда платить"
+            action={
+              isLandlord ? (
+                <button className="link" onClick={openPayoutSheet}>
+                  {payout?.filled ? 'Изменить' : 'Заполнить'}
+                </button>
+              ) : undefined
+            }
+          >
+            {payoutRows.length === 0 ? (
+              <div className="empty">
+                {isLandlord
+                  ? 'Реквизиты не заполнены — арендатору некуда переводить оплату.'
+                  : 'Собственник ещё не указал реквизиты для перевода.'}
+              </div>
+            ) : (
+              <div className="card">
+                {payoutRows.map((row) => (
+                  <div
+                    key={row.key}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '4px 0',
+                    }}
+                  >
+                    <span className="muted">{row.label}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span style={{ overflowWrap: 'anywhere' }}>{row.value}</span>
+                      <button className="link" onClick={() => copy(row.value, row.key)}>
+                        {copied === row.key ? 'Скопировано' : 'Копировать'}
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+        )}
 
         {!lease ? (
           <p className="muted">Загрузка…</p>
@@ -123,6 +241,27 @@ function BillsInner() {
                 )}
               </div>
 
+              {bill.paymentProof && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginTop: 10,
+                    paddingTop: 10,
+                    borderTop: '1px solid var(--border-default)',
+                  }}
+                >
+                  <span className="muted">
+                    Чек от арендатора · {bill.paymentProof.uploadedAt.slice(0, 10)}
+                  </span>
+                  <button className="link" onClick={() => openProof(bill.id)}>
+                    Открыть
+                  </button>
+                </div>
+              )}
+
               <div className="table-actions" style={{ marginTop: 14 }}>
                 {bill.stage === 'draft' && (
                   <>
@@ -132,8 +271,10 @@ function BillsInner() {
                     )}
                   </>
                 )}
-                {bill.stage === 'final' && bill.paymentStatus === 'pending' && isTenant && (
-                  <button disabled={busy} onClick={() => run(() => claimPaid(bill.id))}>Я оплатил</button>
+                {bill.stage === 'final' && bill.paymentStatus !== 'paid' && isTenant && (
+                  <button disabled={busy} onClick={() => setClaimBill(bill.id)}>
+                    {bill.paymentProof ? 'Заменить чек' : 'Я оплатил'}
+                  </button>
                 )}
                 {bill.stage === 'final' && bill.paymentStatus !== 'paid' && isLandlord && (
                   <>
@@ -163,6 +304,53 @@ function BillsInner() {
             <div className="sheet-actions">
               <button type="button" className="secondary" onClick={() => setSheetBill(null)}>Отмена</button>
               <button type="submit" disabled={busy}>Добавить</button>
+            </div>
+          </form>
+        </Sheet>
+      )}
+
+      {claimBill && (
+        <Sheet title="Подтверждение оплаты" onClose={() => setClaimBill(null)}>
+          <form onSubmit={onClaim}>
+            <div className="hint">
+              Приложите чек или скриншот перевода — собственник увидит его,
+              когда будет подтверждать оплату. Пеня останавливается только
+              после его подтверждения.
+            </div>
+            <div className="field">
+              <label>Чек (JPEG, PNG или PDF)</label>
+              <input ref={proofRef} type="file" accept="image/jpeg,image/png,application/pdf" required />
+            </div>
+            <div className="sheet-actions">
+              <button type="button" className="secondary" onClick={() => setClaimBill(null)}>Отмена</button>
+              <button type="submit" disabled={busy}>{busy ? 'Отправка…' : 'Я оплатил'}</button>
+            </div>
+          </form>
+        </Sheet>
+      )}
+
+      {payoutSheet && (
+        <Sheet title="Реквизиты для перевода" onClose={() => setPayoutSheet(false)}>
+          <form onSubmit={onSavePayout}>
+            <div className="hint">
+              Их увидит арендатор на этом экране и сможет скопировать в один
+              клик. Реквизиты не попадают в текст договора.
+            </div>
+            <div className="field">
+              <label>Телефон для СБП</label>
+              <input value={pPhone} onChange={(e) => setPPhone(e.target.value)} placeholder="+7 900 000-00-00" />
+            </div>
+            <div className="field">
+              <label>Банк-получатель</label>
+              <input value={pBank} onChange={(e) => setPBank(e.target.value)} placeholder="Т-Банк" />
+            </div>
+            <div className="field">
+              <label>Комментарий (необязательно)</label>
+              <input value={pNote} onChange={(e) => setPNote(e.target.value)} placeholder="Другой способ перевода" />
+            </div>
+            <div className="sheet-actions">
+              <button type="button" className="secondary" onClick={() => setPayoutSheet(false)}>Отмена</button>
+              <button type="submit" disabled={busy}>Сохранить</button>
             </div>
           </form>
         </Sheet>

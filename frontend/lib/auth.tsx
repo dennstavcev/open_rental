@@ -19,12 +19,25 @@ import {
 export interface CurrentUser {
   id: string;
   email: string;
+  fullName: string;
   isSuperAdmin: boolean;
+  // Реквизиты для перевода (ADR-0019) — заполняет собственник, видит
+  // арендатор на экране счетов.
+  payoutPhone: string | null;
+  payoutBankName: string | null;
+  payoutNote: string | null;
+}
+
+export interface PayoutDetailsInput {
+  payoutPhone?: string;
+  payoutBankName?: string;
+  payoutNote?: string;
 }
 
 interface AuthContextValue {
   user: CurrentUser | null;
   loading: boolean;
+  savePayoutDetails: (input: PayoutDetailsInput) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (input: {
     email: string;
@@ -88,8 +101,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  // Реквизиты для перевода живут на профиле, а редактируются с экрана
+  // счетов — отдельного экрана профиля в MVP нет (ADR-0019).
+  const savePayoutDetails = useCallback(async (input: PayoutDetailsInput) => {
+    setUser(
+      await apiFetch<CurrentUser>('/auth/me', {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      }),
+    );
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, register, logout, savePayoutDetails }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,11 +17,16 @@ import {
   Lease,
   LeaseStatus,
   Payment,
+  PaymentProof,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  STORAGE_PROVIDER,
+  StorageProvider,
+} from '../storage/storage-provider.interface';
 import { AddLineItemDto } from './dto/add-line-item.dto';
 import {
   billTotal,
@@ -32,7 +40,23 @@ import {
   toNumber,
 } from './billing.util';
 
-type BillWithItems = Bill & { lineItems: BillLineItem[]; payment: Payment | null };
+type BillWithItems = Bill & {
+  lineItems: BillLineItem[];
+  payment: Payment | null;
+  paymentProof: PaymentProof | null;
+};
+
+// Чек об оплате (ADR-0019): JPEG/PNG/PDF, как у сканов договора.
+const ALLOWED_PROOF_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'application/pdf': 'pdf',
+};
+
+export interface ProofFile {
+  buffer: Buffer;
+  mimetype: string;
+}
 
 export interface BillView {
   bill: BillWithItems;
@@ -48,6 +72,7 @@ export class BillingService {
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
     private readonly notifications: NotificationsService,
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
   // Счета договора с вычисленными пенями/просрочкой/суммами. Для активного
@@ -59,7 +84,7 @@ export class BillingService {
     }
     const bills = await this.prisma.bill.findMany({
       where: { leaseId },
-      include: { lineItems: true, payment: true },
+      include: { lineItems: true, payment: true, paymentProof: true },
       orderBy: { periodStart: 'desc' },
     });
     const now = new Date();
@@ -109,7 +134,7 @@ export class BillingService {
   ): Promise<{ finalized: number; skipped: number }> {
     const dueDrafts = await this.prisma.bill.findMany({
       where: { stage: BillStage.draft, periodEnd: { lte: now } },
-      include: { lineItems: true, payment: true, lease: true },
+      include: { lineItems: true, payment: true, paymentProof: true, lease: true },
     });
     let finalized = 0;
     let skipped = 0;
@@ -151,7 +176,7 @@ export class BillingService {
     await this.ensureCurrentDraft(lease);
     const draft = await this.prisma.bill.findFirst({
       where: { leaseId: lease.id, stage: BillStage.draft },
-      include: { lineItems: true, payment: true, lease: true },
+      include: { lineItems: true, payment: true, paymentProof: true, lease: true },
     });
     if (!draft) {
       return;
@@ -196,27 +221,97 @@ export class BillingService {
   }
 
   // Арендатор: «Я оплатил» → payment_claimed (заявление, не финализирует).
-  async claimPaid(userId: string, billId: string): Promise<BillView> {
+  // Чек обязателен (ADR-0019): смысл действия — «заявляю об оплате и вот
+  // подтверждение», иначе собственнику нечего проверять. Повторный вызов до
+  // подтверждения оплаты заменяет чек (неудачный скриншот) и уведомляет
+  // собственника заново — для него это новое заявление.
+  async claimPaid(
+    userId: string,
+    billId: string,
+    file: ProofFile,
+  ): Promise<BillView> {
+    const ext = ALLOWED_PROOF_MIME[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(
+        'Чек должен быть файлом JPEG, PNG или PDF',
+      );
+    }
     const bill = await this.getBillAsTenant(userId, billId);
     if (
       bill.stage !== BillStage.final ||
-      bill.paymentStatus !== BillPaymentStatus.pending
+      (bill.paymentStatus !== BillPaymentStatus.pending &&
+        bill.paymentStatus !== BillPaymentStatus.payment_claimed)
     ) {
       throw new ConflictException(
-        'Заявить оплату можно только по счёту в статусе «ожидается»',
+        'Заявить оплату можно только по неоплаченному счёту-финалу',
       );
     }
-    await this.prisma.bill.update({
-      where: { id: billId },
-      data: { paymentStatus: BillPaymentStatus.payment_claimed },
+
+    const replacing = bill.paymentProof;
+    const storageKey = `bills/${billId}/proof-${randomUUID()}.${ext}`;
+    await this.storage.put(storageKey, file.buffer, file.mimetype);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.paymentProof.upsert({
+        where: { billId },
+        create: {
+          billId,
+          storageKey,
+          mimeType: file.mimetype,
+          uploadedById: userId,
+        },
+        update: {
+          storageKey,
+          mimeType: file.mimetype,
+          uploadedById: userId,
+          uploadedAt: new Date(),
+        },
+      });
+      await tx.bill.update({
+        where: { id: billId },
+        data: { paymentStatus: BillPaymentStatus.payment_claimed },
+      });
     });
+
+    // Старый файл удаляем после успешной замены записи, а не до — иначе при
+    // сбое транзакции остался бы битый ключ.
+    if (replacing) {
+      await this.storage.delete(replacing.storageKey);
+    }
+
     // Собственнику — «проверьте, что оплата пришла» (ADR-0012).
     await this.notifications.notify(bill.lease.landlordId, {
       type: 'payment_claimed',
       title: 'Проверьте оплату',
-      body: 'Арендатор отметил счёт как оплаченный — подтвердите получение.',
+      body: replacing
+        ? 'Арендатор заменил чек по счёту — проверьте оплату ещё раз.'
+        : 'Арендатор отметил счёт как оплаченный и приложил чек — подтвердите получение.',
     });
     return this.reload(billId);
+  }
+
+  // Чек видят обе стороны договора, в том числе после подтверждения оплаты:
+  // он и нужен как след для спора задним числом (ADR-0019).
+  async getPaymentProof(
+    userId: string,
+    billId: string,
+  ): Promise<PaymentProof> {
+    const bill = await this.getBillAsParty(userId, billId);
+    if (!bill.paymentProof) {
+      throw new NotFoundException('Чек по счёту не приложен');
+    }
+    return bill.paymentProof;
+  }
+
+  async downloadPaymentProof(
+    userId: string,
+    billId: string,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const proof = await this.getPaymentProof(userId, billId);
+    return {
+      buffer: await this.storage.get(proof.storageKey),
+      mimeType: proof.mimeType,
+    };
   }
 
   // Собственник: «Оплата получена» → paid (только это финализирует оплату,
@@ -482,7 +577,7 @@ export class BillingService {
   private async reload(billId: string): Promise<BillView> {
     const bill = await this.prisma.bill.findUnique({
       where: { id: billId },
-      include: { lineItems: true, payment: true },
+      include: { lineItems: true, payment: true, paymentProof: true },
     });
     if (!bill) {
       throw new NotFoundException('Счёт не найден');
@@ -495,7 +590,7 @@ export class BillingService {
   ): Promise<BillWithItems & { lease: Lease }> {
     const bill = await this.prisma.bill.findUnique({
       where: { id: billId },
-      include: { lineItems: true, payment: true, lease: true },
+      include: { lineItems: true, payment: true, paymentProof: true, lease: true },
     });
     if (!bill) {
       throw new NotFoundException('Счёт не найден');

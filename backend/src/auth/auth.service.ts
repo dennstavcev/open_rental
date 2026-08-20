@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,10 +11,24 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdatePayoutDetailsDto } from './dto/update-payout-details.dto';
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+// Профиль текущего пользователя. Реквизиты для перевода (ADR-0019) —
+// данные аккаунта, не поля договора: в текст договора они не подставляются
+// (ADR-0017), но нужны арендатору, чтобы было куда платить.
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  isSuperAdmin: boolean;
+  payoutPhone: string | null;
+  payoutBankName: string | null;
+  payoutNote: string | null;
 }
 
 export interface AccessTokenPayload {
@@ -33,6 +48,40 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
   ) {}
+
+  async getProfile(userId: string): Promise<UserProfile> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Пользователь не найден');
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      isSuperAdmin: user.isSuperAdmin,
+      payoutPhone: user.payoutPhone,
+      payoutBankName: user.payoutBankName,
+      payoutNote: user.payoutNote,
+    };
+  }
+
+  // Пустая строка очищает поле — иначе реквизиты было бы нельзя убрать.
+  async updatePayoutDetails(
+    userId: string,
+    dto: UpdatePayoutDetailsDto,
+  ): Promise<UserProfile> {
+    const normalize = (value?: string): string | null | undefined =>
+      value === undefined ? undefined : value.trim() || null;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        payoutPhone: normalize(dto.payoutPhone),
+        payoutBankName: normalize(dto.payoutBankName),
+        payoutNote: normalize(dto.payoutNote),
+      },
+    });
+    return this.getProfile(userId);
+  }
 
   async register(dto: RegisterDto): Promise<AuthTokens> {
     // Email нормализуется в нижний регистр — вход не зависит от регистра.

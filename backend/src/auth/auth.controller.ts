@@ -4,13 +4,15 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
-import { AuthService, AuthTokens } from './auth.service';
+import { AuthService, AuthTokens, UserProfile } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { UpdatePayoutDetailsDto } from './dto/update-payout-details.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { AuthenticatedUser } from './strategies/jwt.strategy';
@@ -42,9 +44,20 @@ export class AuthController {
     await this.authService.logout(dto.refreshToken);
   }
 
+  // Профиль читается из БД, а не из токена: кроме id/email отдаёт ФИО и
+  // реквизиты для перевода (ADR-0019), которые в токене не лежат.
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  me(@CurrentUser() user: AuthenticatedUser): AuthenticatedUser {
-    return user;
+  me(@CurrentUser() user: AuthenticatedUser): Promise<UserProfile> {
+    return this.authService.getProfile(user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdatePayoutDetailsDto,
+  ): Promise<UserProfile> {
+    return this.authService.updatePayoutDetails(user.id, dto);
   }
 }

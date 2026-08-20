@@ -13,7 +13,7 @@ import { Invitation, Lease } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { LeasesService } from './leases.service';
+import { LeasesService, PayoutDetailsView } from './leases.service';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { UpdateLeaseDto } from './dto/update-lease.dto';
 import { SendLeaseDto } from './dto/send-lease.dto';
@@ -43,6 +43,15 @@ export class LeasesController {
     @Param('id') id: string,
   ): Promise<Lease> {
     return this.leases.getForUser(user.id, id);
+  }
+
+  // Реквизиты арендодателя по договору (ADR-0019) — видят обе стороны.
+  @Get('leases/:id/payout-details')
+  payoutDetails(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<PayoutDetailsView> {
+    return this.leases.getPayoutDetails(user.id, id);
   }
 
   @Patch('leases/:id')
