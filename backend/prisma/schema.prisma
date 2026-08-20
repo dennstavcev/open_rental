@@ -406,7 +406,11 @@ model TerminationRequest {
 enum InvitationStatus {
   pending
   accepted
+  // Отказался приглашённый.
   declined
+  // Отозвал отправитель — опечатка в адресе или передумал (ADR-0020).
+  // Отдельно от declined, чтобы история договора не врала.
+  cancelled
 }
 
 // Приглашение landlord → tenant на конкретный договор

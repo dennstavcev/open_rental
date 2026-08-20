@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,7 +14,11 @@ import { Invitation, Lease } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { LeasesService, PayoutDetailsView } from './leases.service';
+import {
+  LeasesService,
+  LeaseView,
+  PayoutDetailsView,
+} from './leases.service';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { UpdateLeaseDto } from './dto/update-lease.dto';
 import { SendLeaseDto } from './dto/send-lease.dto';
@@ -33,7 +38,7 @@ export class LeasesController {
   }
 
   @Get('leases')
-  listMine(@CurrentUser() user: AuthenticatedUser): Promise<Lease[]> {
+  listMine(@CurrentUser() user: AuthenticatedUser): Promise<LeaseView[]> {
     return this.leases.listForUser(user.id);
   }
 
@@ -41,7 +46,7 @@ export class LeasesController {
   getOne(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-  ): Promise<Lease> {
+  ): Promise<LeaseView> {
     return this.leases.getForUser(user.id, id);
   }
 
@@ -63,6 +68,9 @@ export class LeasesController {
     return this.leases.updateDraft(user.id, id, dto);
   }
 
+  // Отправка и переотправка приглашения — один эндпоинт: пока арендатор не
+  // привязан, повторный вызов отзывает прошлое приглашение и создаёт новое
+  // (исправление опечатки в адресе, ADR-0020).
   @Post('leases/:id/send')
   @HttpCode(HttpStatus.OK)
   send(
@@ -71,5 +79,14 @@ export class LeasesController {
     @Body() dto: SendLeaseDto,
   ): Promise<{ lease: Lease; invitation: Invitation }> {
     return this.leases.send(user.id, id, dto.invitedEmail);
+  }
+
+  @Delete('leases/:id/invitation')
+  @HttpCode(HttpStatus.OK)
+  cancelInvitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<Lease> {
+    return this.leases.cancelInvitation(user.id, id);
   }
 }

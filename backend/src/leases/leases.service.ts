@@ -5,7 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Invitation, Lease, LeaseStatus } from '@prisma/client';
+import {
+  Invitation,
+  InvitationStatus,
+  Lease,
+  LeaseStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PropertiesService } from '../properties/properties.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -15,6 +20,33 @@ import { UpdateLeaseDto } from './dto/update-lease.dto';
 // Приглашение вместе с контекстом: кто пригласил и на какой объект. Без
 // этого в карточке приглашения нечего показать, кроме email самого
 // приглашённого — он и так знает свой email.
+// Договор вместе с тем, что нужно показать на экране: объект и контрагент
+// (ADR-0020). Раньше отдавался «голый» Lease, и фронт добирал адрес
+// отдельным запросом к properties/:id — арендатору это давало 404, потому
+// что объект чужой. Персональные данные здесь — данные аккаунта, а не поля
+// договора: в LeaseDocument они не подставляются (ADR-0017, граница
+// зафиксирована в ADR-0019).
+export interface LeasePartyView {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
+export interface LeaseInvitationView {
+  invitedEmail: string;
+  status: InvitationStatus;
+  createdAt: Date;
+}
+
+export type LeaseView = Lease & {
+  property: { id: string; address: string };
+  landlord: LeasePartyView;
+  tenant: LeasePartyView | null;
+  // Только арендодателю: кому отправлено приглашение и что с ним. Нужно,
+  // чтобы заметить опечатку в адресе и переотправить (ADR-0020).
+  invitation: LeaseInvitationView | null;
+};
+
 // Реквизиты арендодателя по договору (ADR-0019) — арендатору, чтобы было
 // куда платить. В текст договора не подставляются (ADR-0017).
 export interface PayoutDetailsView {
@@ -29,6 +61,13 @@ export type InvitationView = Invitation & {
   property: { address: string };
   lease: Pick<Lease, 'startDate' | 'endDate' | 'rentAmount'>;
 };
+
+const LEASE_VIEW_INCLUDE = {
+  property: { select: { id: true, address: true } },
+  landlord: { select: { id: true, fullName: true, email: true } },
+  tenant: { select: { id: true, fullName: true, email: true } },
+  invitations: { orderBy: { createdAt: 'desc' }, take: 1 },
+} as const;
 
 @Injectable()
 export class LeasesService {
@@ -72,17 +111,20 @@ export class LeasesService {
 
   // Договоры, где пользователь — арендодатель ИЛИ арендатор (кабинет
   // видят обе стороны).
-  listForUser(userId: string): Promise<Lease[]> {
-    return this.prisma.lease.findMany({
+  async listForUser(userId: string): Promise<LeaseView[]> {
+    const leases = await this.prisma.lease.findMany({
       where: { OR: [{ landlordId: userId }, { tenantId: userId }] },
       orderBy: { createdAt: 'desc' },
+      include: LEASE_VIEW_INCLUDE,
     });
+    return leases.map((lease) => this.toLeaseView(lease, userId));
   }
 
   // Договор виден landlord'у и привязанному tenant'у.
-  async getForUser(userId: string, leaseId: string): Promise<Lease> {
+  async getForUser(userId: string, leaseId: string): Promise<LeaseView> {
     const lease = await this.prisma.lease.findUnique({
       where: { id: leaseId },
+      include: LEASE_VIEW_INCLUDE,
     });
     if (
       !lease ||
@@ -90,7 +132,32 @@ export class LeasesService {
     ) {
       throw new NotFoundException('Договор не найден');
     }
-    return lease;
+    return this.toLeaseView(lease, userId);
+  }
+
+  private toLeaseView(
+    lease: Lease & {
+      property: { id: string; address: string };
+      landlord: LeasePartyView;
+      tenant: LeasePartyView | null;
+      invitations: Invitation[];
+    },
+    userId: string,
+  ): LeaseView {
+    const { invitations, ...rest } = lease;
+    const latest = invitations[0];
+    return {
+      ...rest,
+      // Историю приглашений видит только тот, кто их отправлял.
+      invitation:
+        latest && lease.landlordId === userId
+          ? {
+              invitedEmail: latest.invitedEmail,
+              status: latest.status,
+              createdAt: latest.createdAt,
+            }
+          : null,
+    };
   }
 
   async updateDraft(
@@ -121,12 +188,15 @@ export class LeasesService {
   }
 
   // Отправка договора арендатору: draft → sent + приглашение по email.
+  // Повторная отправка по уже отправленному договору (пока арендатор не
+  // привязан) — способ исправить опечатку в адресе: прошлое приглашение
+  // отзывается, его токен перестаёт работать (ADR-0020).
   async send(
     landlordId: string,
     leaseId: string,
     invitedEmail: string,
   ): Promise<{ lease: Lease; invitation: Invitation }> {
-    await this.getOwnedDraft(landlordId, leaseId);
+    await this.getOwnedInvitable(landlordId, leaseId);
 
     // Нельзя пригласить самого себя арендатором (иначе landlord == tenant).
     const landlord = await this.prisma.user.findUnique({
@@ -140,6 +210,10 @@ export class LeasesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      await tx.invitation.updateMany({
+        where: { leaseId, status: InvitationStatus.pending },
+        data: { status: InvitationStatus.cancelled },
+      });
       const lease = await tx.lease.update({
         where: { id: leaseId },
         data: { status: LeaseStatus.sent },
@@ -152,6 +226,28 @@ export class LeasesService {
         },
       });
       return { lease, invitation };
+    });
+  }
+
+  // Отзыв приглашения: договор возвращается в черновик, чтобы условия
+  // можно было доредактировать перед новой отправкой (ADR-0020).
+  async cancelInvitation(
+    landlordId: string,
+    leaseId: string,
+  ): Promise<Lease> {
+    const lease = await this.getOwnedInvitable(landlordId, leaseId);
+    if (lease.status !== LeaseStatus.sent) {
+      throw new ConflictException('Договор ещё не отправлен арендатору');
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.invitation.updateMany({
+        where: { leaseId, status: InvitationStatus.pending },
+        data: { status: InvitationStatus.cancelled },
+      });
+      return tx.lease.update({
+        where: { id: leaseId },
+        data: { status: LeaseStatus.draft },
+      });
     });
   }
 
@@ -251,6 +347,31 @@ export class LeasesService {
       where: { id: invitationId },
       data: { status: 'declined' },
     });
+  }
+
+  // Договор, по которому landlord ещё может распоряжаться приглашением:
+  // черновик или уже отправленный, но не принятый арендатором. Отдельно от
+  // getOwnedDraft, чтобы послабление не расползлось на другие действия
+  // (ADR-0020).
+  private async getOwnedInvitable(
+    landlordId: string,
+    leaseId: string,
+  ): Promise<Lease> {
+    const lease = await this.prisma.lease.findUnique({
+      where: { id: leaseId },
+    });
+    if (!lease || lease.landlordId !== landlordId) {
+      throw new NotFoundException('Договор не найден');
+    }
+    if (lease.status !== LeaseStatus.draft && lease.status !== LeaseStatus.sent) {
+      throw new ConflictException(
+        'Договор уже заключён или расторгнут — приглашение изменить нельзя',
+      );
+    }
+    if (lease.tenantId) {
+      throw new ConflictException('К договору уже привязан арендатор');
+    }
+    return lease;
   }
 
   // Договор-черновик, принадлежащий landlord'у (иначе 404/403/409).

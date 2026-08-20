@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { listNotifications } from '@/lib/notifications';
 import { listInvitations } from '@/lib/leases';
+import { INVITATIONS_CHANGED } from '@/lib/events';
 import { usePolling } from '@/lib/usePolling';
 
 function Icon({ name }: { name: string }) {
@@ -39,11 +40,21 @@ interface NavItem {
   label: string;
   icon: string;
   badgeKey?: 'notifications' | 'invitations';
+  // Пункт появляется в меню, только пока есть что показывать (ADR-0020):
+  // приглашение нужно считанные разы за жизнь договора, а место в
+  // навигации занимало постоянно.
+  onlyWhenBadge?: boolean;
 }
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Главная', icon: 'home' },
   { href: '/properties', label: 'Аренда', icon: 'building' },
-  { href: '/invitations', label: 'Приглашения', icon: 'mail', badgeKey: 'invitations' },
+  {
+    href: '/invitations',
+    label: 'Приглашения',
+    icon: 'mail',
+    badgeKey: 'invitations',
+    onlyWhenBadge: true,
+  },
   { href: '/reports', label: 'Отчёты', icon: 'chart' },
   { href: '/notifications', label: 'Уведомления', icon: 'bell', badgeKey: 'notifications' },
 ];
@@ -73,10 +84,23 @@ export function TopBar() {
     refreshUnread();
     refreshInvites();
   }, [refreshUnread, refreshInvites, pathname]);
+
+  // Своё действие («Принять»/«Отклонить») отражается сразу, не дожидаясь
+  // следующего опроса — иначе пункт меню ведёт на пустой экран.
+  useEffect(() => {
+    window.addEventListener(INVITATIONS_CHANGED, refreshInvites);
+    return () => window.removeEventListener(INVITATIONS_CHANGED, refreshInvites);
+  }, [refreshInvites]);
   usePolling(refreshUnread, 30000);
   usePolling(refreshInvites, 30000);
 
   const badgeCounts = { notifications: unread, invitations: pendingInvites };
+
+  // Скрытый пункт остаётся доступным по прямой ссылке — экран не удалён,
+  // главный путь к нему теперь карточка «Примите приглашение» в «Сегодня».
+  const items = NAV.filter(
+    (n) => !n.onlyWhenBadge || (n.badgeKey && badgeCounts[n.badgeKey] > 0),
+  );
 
   const active = (href: string) =>
     pathname === href || pathname.startsWith(href + '/');
@@ -91,7 +115,7 @@ export function TopBar() {
       {/* Desktop sidebar */}
       <aside className="sidebar">
         <div className="brand">SOFTRENT</div>
-        {NAV.map((n) => (
+        {items.map((n) => (
           <Link
             key={n.href}
             href={n.href}
@@ -123,7 +147,7 @@ export function TopBar() {
 
       {/* Mobile bottom tab bar */}
       <nav className="bottom-nav">
-        {NAV.map((n) => (
+        {items.map((n) => (
           <Link key={n.href} href={n.href} className={active(n.href) ? 'active' : ''}>
             <Icon name={n.icon} />
             <span>{n.label}</span>

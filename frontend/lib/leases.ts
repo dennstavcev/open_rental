@@ -2,6 +2,15 @@ import { apiFetch } from './api';
 
 export type LeaseStatus = 'draft' | 'sent' | 'active' | 'terminated';
 
+export interface LeaseParty {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
+// Договор приходит вместе с объектом и сторонами (ADR-0020): адрес больше
+// не добирается отдельным запросом к properties/:id — арендатору тот
+// отвечал 404, потому что объект чужой.
 export interface Lease {
   id: string;
   propertyId: string;
@@ -14,6 +23,15 @@ export interface Lease {
   depositAmount: string;
   paymentDay: number;
   penaltyRatePercentPerDay: string;
+  property: { id: string; address: string };
+  landlord: LeaseParty;
+  tenant: LeaseParty | null;
+  // Только арендодателю: кому отправлено приглашение и что с ним.
+  invitation: {
+    invitedEmail: string;
+    status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+    createdAt: string;
+  } | null;
 }
 
 export interface CreateLeaseInput {
@@ -55,11 +73,17 @@ export function createLease(
   });
 }
 
+// Отправка и переотправка — один вызов: пока арендатор не привязан,
+// повторная отправка отзывает прошлое приглашение (ADR-0020).
 export function sendLease(id: string, invitedEmail: string): Promise<unknown> {
   return apiFetch(`/leases/${id}/send`, {
     method: 'POST',
     body: JSON.stringify({ invitedEmail }),
   });
+}
+
+export function cancelLeaseInvitation(id: string): Promise<Lease> {
+  return apiFetch<Lease>(`/leases/${id}/invitation`, { method: 'DELETE' });
 }
 
 export function listInvitations(): Promise<Invitation[]> {

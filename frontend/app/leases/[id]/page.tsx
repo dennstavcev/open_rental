@@ -7,8 +7,8 @@ import { RequireAuth } from '@/components/RequireAuth';
 import { TopBar } from '@/components/TopBar';
 import { LeaseTabs, List, PageHeader, Row, Section } from '@/components/ui';
 import { ApiError } from '@/lib/api';
-import { getProperty } from '@/lib/properties';
 import {
+  cancelLeaseInvitation,
   generateDocument,
   generateHandoverAct,
   getDocument,
@@ -31,7 +31,6 @@ function LeaseDetailInner() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [lease, setLease] = useState<Lease | null>(null);
-  const [address, setAddress] = useState<string>('');
   const [scans, setScans] = useState<LeaseSignedScan[]>([]);
   const [docHtml, setDocHtml] = useState<string | null>(null);
   const [showDoc, setShowDoc] = useState(false);
@@ -40,6 +39,7 @@ function LeaseDetailInner() {
   const [itemsCount, setItemsCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
+  const [editingInvite, setEditingInvite] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -48,7 +48,6 @@ function LeaseDetailInner() {
     try {
       const l = await getLease(id);
       setLease(l);
-      getProperty(l.propertyId).then((p) => setAddress(p.address)).catch(() => {});
       if (l.status === 'sent' || l.status === 'active') {
         setScans(await listSignedScans(id));
       }
@@ -78,9 +77,26 @@ function LeaseDetailInner() {
     setError(null);
     try {
       await sendLease(id, email);
+      setEditingInvite(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка отправки');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Отзыв приглашения возвращает договор в черновик (ADR-0020) — например,
+  // если landlord передумал сдавать этому арендатору.
+  async function onCancelInvite() {
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelLeaseInvitation(id);
+      setEditingInvite(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка отмены');
     } finally {
       setBusy(false);
     }
@@ -147,7 +163,7 @@ function LeaseDetailInner() {
           <>
             <PageHeader
               back="/properties"
-              title={address || 'Договор'}
+              title={lease.property.address}
               action={
                 <span className={`pill ${lease.status === 'active' ? 'ok' : ''}`}>
                   {STATUS_LABEL[lease.status]}
@@ -170,6 +186,16 @@ function LeaseDetailInner() {
                 <div className="fact"><div className="k">ДЕНЬ ОПЛАТЫ</div><div className="v">{lease.paymentDay} числа</div></div>
                 <div className="fact"><div className="k">ПЕНЯ</div><div className="v">{lease.penaltyRatePercentPerDay}%/день</div></div>
                 <div className="fact"><div className="k">СРОК</div><div className="v">{lease.startDate.slice(0, 10)} — {lease.endDate.slice(0, 10)}</div></div>
+                <div className="fact">
+                  <div className="k">{isLandlord ? 'АРЕНДАТОР' : 'СОБСТВЕННИК'}</div>
+                  <div className="v" style={{ overflowWrap: 'anywhere' }}>
+                    {isLandlord
+                      ? lease.tenant
+                        ? `${lease.tenant.fullName} · ${lease.tenant.email}`
+                        : 'Ещё не принял приглашение'
+                      : `${lease.landlord.fullName} · ${lease.landlord.email}`}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -272,7 +298,7 @@ function LeaseDetailInner() {
               )}
             </Section>
 
-            {lease.status === 'draft' && (
+            {isLandlord && lease.status === 'draft' && (
               <Section title="Отправить арендатору">
                 <form className="card" onSubmit={onSend}>
                   <div className="field">
@@ -283,6 +309,78 @@ function LeaseDetailInner() {
                     {busy ? 'Отправка…' : 'Отправить приглашение'}
                   </button>
                 </form>
+              </Section>
+            )}
+
+            {isLandlord && lease.status === 'sent' && lease.invitation && (
+              <Section title="Приглашение">
+                {editingInvite ? (
+                  <form className="card" onSubmit={onSend}>
+                    <div className="hint">
+                      Прошлое приглашение перестанет действовать — арендатор
+                      получит новое по указанному адресу.
+                    </div>
+                    <div className="field">
+                      <label>Email арендатора</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="tenant@mail.ru"
+                        required
+                      />
+                    </div>
+                    <div className="table-actions">
+                      <button type="submit" disabled={busy}>
+                        {busy ? 'Отправка…' : 'Отправить заново'}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => setEditingInvite(false)}
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="card">
+                    <div className="facts">
+                      <div className="fact">
+                        <div className="k">ОТПРАВЛЕНО НА</div>
+                        <div className="v" style={{ overflowWrap: 'anywhere' }}>
+                          {lease.invitation.invitedEmail}
+                        </div>
+                      </div>
+                      <div className="fact">
+                        <div className="k">КОГДА</div>
+                        <div className="v">
+                          {lease.invitation.createdAt.slice(0, 10)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="hint" style={{ marginTop: 12 }}>
+                      Арендатор ещё не принял приглашение. Проверьте адрес — если
+                      в нём опечатка, отправьте заново на верный.
+                    </div>
+                    <div className="table-actions">
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          setEmail(lease.invitation?.invitedEmail ?? '');
+                          setEditingInvite(true);
+                        }}
+                      >
+                        Изменить адрес
+                      </button>
+                      <button className="secondary" disabled={busy} onClick={onCancelInvite}>
+                        Отозвать
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Section>
             )}
 

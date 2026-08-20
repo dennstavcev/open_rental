@@ -46,7 +46,13 @@ function DashboardInner() {
       listNotifications().catch(() => []),
       getSummary().catch(() => null),
     ]);
-    const addrMap = Object.fromEntries(props.map((p) => [p.id, p.address]));
+    // Адрес приходит вместе с договором (ADR-0020): у арендатора своих
+    // объектов нет, и listProperties() для него пуст — раньше подпись
+    // действия превращалась в безликое «Договор».
+    const addrMap = Object.fromEntries([
+      ...props.map((p) => [p.id, p.address] as const),
+      ...leases.map((l) => [l.propertyId, l.property.address] as const),
+    ]);
     setAddr(addrMap);
     setRecent(leases.slice(0, 4));
     if (summary) {
@@ -76,7 +82,7 @@ function DashboardInner() {
     await Promise.all(
       leases.map(async (l) => {
         const role = l.tenantId === uid ? 'tenant' : 'landlord';
-        const place = addrMap[l.propertyId] ?? 'Договор';
+        const place = addrMap[l.propertyId] ?? l.property.address;
         if (l.status === 'sent') {
           const scans = await listSignedScans(l.id).catch(() => []);
           if (!scans.find((s) => s.role === role)) {
@@ -194,7 +200,7 @@ function DashboardInner() {
                 <Row
                   key={l.id}
                   icon="doc"
-                  title={addr[l.propertyId] ?? `Договор ${l.id.slice(0, 8)}`}
+                  title={addr[l.propertyId] ?? l.property.address}
                   subtitle={`${formatMoney(l.rentAmount)} ₽/мес · с ${l.startDate.slice(0, 10)}`}
                   trail={<span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>{STATUS_LABEL[l.status]}</span>}
                   href={`/leases/${l.id}`}

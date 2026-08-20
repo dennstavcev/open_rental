@@ -12,6 +12,7 @@ import {
   Invitation,
   listInvitations,
 } from '@/lib/leases';
+import { notifyInvitationsChanged } from '@/lib/events';
 import { usePolling } from '@/lib/usePolling';
 
 function InvitationsInner() {
@@ -41,6 +42,7 @@ function InvitationsInner() {
     setError(null);
     try {
       await (accept ? acceptInvitation(id) : declineInvitation(id));
+      notifyInvitationsChanged();
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка');
