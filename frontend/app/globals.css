@@ -1,64 +1,75 @@
 /* ==========================================================================
-   Design tokens — imported from Claude Design handoff
-   ("SoftRent Design System", https://claude.ai/design/p/9d23e4c8-1e7a-44a7-862a-3d3e5fb89e0e)
-   See docs/DESIGN_SYSTEM.md for the full spec and rationale.
-   No brand font files were provided in the source (screenshots only) —
-   Manrope substituted as the nearest geometric warm sans with Cyrillic support.
+   Слой токенов — редизайн ADR-0023, источник `.stitch/DESIGN.md`.
+   Tailwind-тема (`tailwind.config.ts`) ссылается на эти переменные и
+   не дублирует значения: палитра правится здесь, в одном месте.
+
+   Ниже слоя токенов до конца файла лежит старый CSS предыдущей версии
+   интерфейса. Он удаляется поэкранно на этапе R3 — каждый перенесённый
+   экран уносит с собой свои классы. К концу R3 от него не должно
+   остаться ничего, кроме этого слоя.
    ========================================================================== */
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
 
-:root {
-  /* -- raw palette (sampled from the SoftRent prototype) -- */
-  --cream-50: #faf3e7;
-  --cream-100: #f1e2c9;
-  --sand-200: #e6cda3;
-  --sand-300: #d9b17e;
-  --sand-400: #cdb68c;
-  --terracotta-300: #d98a5c;
-  --terracotta-400: #c9683f;
-  --terracotta-500: #c04c20;
-  --terracotta-700: #8a3a1c;
-  --brass-300: #b98f45;
-  --brass-500: #8a6a2e;
-  --brass-700: #5c471f;
-  --fog-300: #9aa39c;
-  --fog-500: #7c7761;
-  --ink-900: #241b12;
-  --ink-700: #3a2e1f;
-  --violet-400: #b585ea;
-  --violet-500: #9b52d9;
-  --violet-700: #5330cf;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  /* -- semantic tokens -- */
-  --surface-app-gradient: linear-gradient(180deg, var(--cream-100) 0%, var(--sand-300) 45%, var(--fog-500) 100%);
-  --gradient-accent: linear-gradient(135deg, var(--violet-400) 0%, var(--violet-500) 45%, var(--violet-700) 100%);
+:root {
+  /* -- палитра -- */
+  --cream-50: #fbf6ec;
+  --cream-100: #f5ecdc;
+  --sand-200: #e9d3ac;
+  --sand-300: #dcc190;
+  --terracotta-500: #bd5227;
+  --terracotta-700: #8f3d1d;
+  --ink-950: #211a10;
+  --ink-700: #4a3c28;
+  --fog-500: #7c7a6c;
+  --violet-500: #8a4fe0;
+  --violet-700: #5a2fb0;
+
+  /* Функциональные цвета — конвенциональные, не выведены из бренда.
+     Всегда идут вместе с иконкой и текстом, цветом одним не сообщаем. */
+  --danger: #c0362a;
+  --danger-weak: #fbeeec;
+  --success: #1f7a4d;
+  --success-weak: #eaf5ef;
+  --warn: #a15c07;
+  --warn-weak: #fbf1e2;
+  --danger-line: rgba(192, 54, 42, 0.32);
+  --success-line: rgba(31, 122, 77, 0.32);
+  --warn-line: rgba(161, 92, 7, 0.32);
+
+  /* -- поверхности -- */
+  --surface-app: var(--cream-50);
+  --surface-card: #fffaf1;
+  --surface-card-strong: #ffffff;
+  --surface-input: #fffaf1;
+  --surface-hover: rgba(233, 211, 172, 0.28);
+  --surface-icon: rgba(233, 211, 172, 0.45);
+  --surface-skeleton: rgba(233, 211, 172, 0.6);
+  --overlay: rgba(33, 26, 16, 0.42);
+  --gradient-accent: linear-gradient(135deg, var(--violet-500) 0%, var(--violet-700) 100%);
+  /* Градиент остаётся только на auth и мастере; плотные рабочие экраны
+     живут на плоском кремовом фоне — иначе таблицы читаются хуже. */
+  --gradient-app: linear-gradient(160deg, var(--cream-50) 0%, var(--sand-200) 100%);
+
+  /* -- текст -- */
+  --text-primary: var(--ink-950);
+  --text-secondary: var(--ink-700);
+  --text-muted: var(--fog-500);
+  --text-on-accent: #ffffff;
   --text-on-photo: #fbf6ec;
   --text-on-photo-muted: rgba(251, 246, 236, 0.72);
-  --text-on-photo-faint: rgba(251, 246, 236, 0.5);
-  --surface-input-photo: rgba(250, 240, 224, 0.2);
-  --surface-input-photo-hover: rgba(250, 240, 224, 0.3);
+
+  /* -- границы -- */
+  --border-default: rgba(233, 211, 172, 0.9);
+  --border-strong: rgba(74, 60, 40, 0.24);
   --border-photo: rgba(255, 255, 255, 0.32);
   --border-photo-focus: rgba(255, 255, 255, 0.65);
-  --accent-primary: var(--violet-500);
-  --accent-primary-strong: var(--violet-700);
+  --surface-input-photo: rgba(250, 240, 224, 0.18);
 
-  /* -- app-shell contextual defaults (light, non-photo screens) -- */
-  --text-primary: var(--ink-900);
-  --text-muted: rgba(36, 27, 18, 0.62);
-  --text-faint: rgba(36, 27, 18, 0.4);
-  --surface-card: rgba(250, 243, 231, 0.6);
-  --surface-card-strong: rgba(250, 243, 231, 0.92);
-  --surface-input: rgba(250, 243, 231, 0.55);
-  --surface-input-hover: rgba(250, 243, 231, 0.8);
-  --border-default: rgba(60, 40, 20, 0.16);
-  --border-focus: var(--terracotta-400);
-  --btn-primary-bg: var(--gradient-accent);
-  --btn-primary-text: #ffffff;
-  --btn-secondary-bg: rgba(255, 255, 255, 0.55);
-  --btn-secondary-text: var(--ink-900);
-  --btn-secondary-border: rgba(60, 40, 20, 0.22);
-
-  /* -- typography -- */
+  /* -- типографика -- */
   --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --text-xs: 12px;
   --text-sm: 13px;
@@ -69,8 +80,9 @@
   --text-2xl: 24px;
   --text-3xl: 28px;
   --text-4xl: 34px;
+  --text-5xl: 40px;
   --leading-tight: 1.15;
-  --leading-normal: 1.4;
+  --leading-normal: 1.5;
   --leading-relaxed: 1.6;
   --weight-regular: 400;
   --weight-medium: 500;
@@ -79,9 +91,9 @@
   --tracking-tight: -0.01em;
   --tracking-normal: 0;
   --tracking-wide: 0.02em;
-  --tracking-label: 0.03em;
+  --tracking-label: 0.06em;
 
-  /* -- spacing -- */
+  /* -- отступы -- */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -91,49 +103,68 @@
   --space-8: 32px;
   --space-10: 40px;
   --space-12: 48px;
+  --space-16: 64px;
   --screen-padding: 24px;
 
-  /* -- radius / effects -- */
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 22px;
+  /* -- ширины -- */
+  --content-max: 1200px;
+  --prose-max: 720px;
+  --form-max: 440px;
+
+  /* -- радиусы и эффекты -- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
   --blur-frost: 18px;
-  --shadow-card: 0 8px 30px rgba(30, 20, 10, 0.12);
-  --shadow-btn: 0 2px 10px rgba(30, 20, 10, 0.12);
-  /* Liquid-glass surfaces: bright translucent rim (catches light on a
-     curved edge) instead of a flat dark border, plus an inset top
-     highlight layered under the usual drop shadow for depth. */
-  --border-glass: 1px solid rgba(255, 255, 255, 0.45);
-  --shadow-glass: 0 8px 30px rgba(30, 20, 10, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-card: 0 1px 2px rgba(33, 26, 16, 0.04);
+  --shadow-raised: 0 4px 16px rgba(33, 26, 16, 0.07);
+  --shadow-nav: 0 -1px 0 var(--border-default);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --duration-fast: 120ms;
+  --duration-fast: 150ms;
   --duration-base: 200ms;
 
-  /* -- functional state colors (conventional, not brand-derived) -- */
-  --danger: #d92d20;
-  --danger-weak: #fef3f2;
-  --success: #067647;
-  --success-weak: #ecfdf3;
-  --warn: #b54708;
-  --warn-weak: #fffaeb;
+  /* -- раскладка -- */
+  --sidebar-w: 240px;
+  --header-h: 56px;
+  --bottomnav-h: 64px;
 
-  /* -- legacy aliases (kept so existing inline var() references keep working) -- */
+  /* -- совместимость со старым слоем --
+     Старые классы ниже по файлу ссылаются на эти имена. Алиасы уходят
+     вместе с последним классом, который их использует (R3). */
+  --violet-400: var(--violet-500);
+  --terracotta-300: var(--terracotta-500);
+  --terracotta-400: var(--terracotta-500);
+  --brass-300: var(--sand-300);
+  --brass-500: var(--terracotta-700);
+  --brass-700: var(--terracotta-700);
+  --fog-300: var(--fog-500);
+  --ink-900: var(--ink-950);
+  --sand-400: var(--sand-300);
+  --text-faint: var(--fog-500);
+  --text-on-photo-faint: rgba(251, 246, 236, 0.5);
+  --surface-app-gradient: var(--gradient-app);
+  --surface-input-photo-hover: rgba(250, 240, 224, 0.3);
+  --accent-primary: var(--violet-500);
+  --accent-primary-strong: var(--violet-700);
+  --surface-input-hover: var(--surface-hover);
+  --border-focus: var(--violet-500);
+  --btn-primary-bg: var(--gradient-accent);
+  --btn-primary-text: var(--text-on-accent);
+  --btn-secondary-bg: transparent;
+  --btn-secondary-text: var(--ink-950);
+  --btn-secondary-border: var(--border-strong);
+  --border-glass: 1px solid var(--border-default);
+  --shadow-glass: var(--shadow-raised);
+  --shadow-btn: none;
   --bg: var(--cream-50);
   --card: var(--surface-card);
   --border: var(--border-default);
   --text: var(--text-primary);
   --muted: var(--text-muted);
-  --accent: var(--accent-primary);
-  --accent-weak: rgba(155, 82, 217, 0.12);
+  --accent: var(--violet-500);
+  --accent-weak: rgba(138, 79, 224, 0.12);
   --shadow: var(--shadow-card);
-
-  /* -- layout -- */
-  --sidebar-w: 224px;
-  --header-h: 54px;
-  --bottomnav-h: 62px;
 }
 
 * {
