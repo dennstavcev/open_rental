@@ -3,9 +3,17 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, Check, Clock, Info } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { List, Row } from '@/components/List';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { PageHeader } from '@/components/ui';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input, Textarea } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -195,153 +203,246 @@ function PartyInfoInner() {
   const readOnly = lease?.status === 'terminated';
   const needsConsent = status?.self.needsConsent ?? true;
 
-  return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader
-          back={`/leases/${id}`}
-          title="Персональные данные"
-          subtitle={lease?.property.address}
-        />
-        {error && <div className="error">{error}</div>}
-        {!lease || !status || !policy ? (
-          error ? null : <p className="muted">Загрузка…</p>
-        ) : (
-          <form className="card" onSubmit={onSubmit}>
-            {readOnly ? (
-              <div className="hint">
-                Договор расторгнут — данные заморожены и будут удалены по
-                истечении срока хранения (3 года).
-              </div>
-            ) : (
-              <div className="hint">
-                Сервис на тестовом стенде — вносите вымышленные данные.
-                Итоговая редакция политики обработки персональных данных ещё
-                готовится.
-              </div>
-            )}
+  const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' } as const;
 
-            <div className="field">
-              <label>ФИО</label>
-              <input value={user?.fullName ?? ''} disabled />
-              <span className="muted">Из профиля, попадает в договор</span>
+  return (
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}`}
+        backLabel="Договор"
+        title="Персональные данные"
+        subtitle={lease?.property.address}
+      />
+
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {!lease || !status || !policy ? (
+        error ? null : (
+          <p className="text-content-muted">Загрузка…</p>
+        )
+      ) : (
+        // Форма не растягивается на весь десктоп: поля паспорта короткие,
+        // а строка длиной в экран читается хуже. Справа — контекст.
+        <div className="lg:grid lg:grid-cols-[minmax(0,560px)_320px] lg:items-start lg:gap-10">
+          <form onSubmit={onSubmit} className="space-y-4">
+            <p
+              className={`flex gap-2 rounded-md px-4 py-3 text-sm ${
+                readOnly ? 'bg-sand-200/60 text-content-secondary' : 'bg-sand-200/60 text-content-secondary'
+              }`}
+            >
+              <Info aria-hidden className="size-4 shrink-0 text-content-muted" />
+              <span className="max-w-prose">
+                {readOnly
+                  ? 'Договор расторгнут — данные заморожены и будут удалены по истечении срока хранения (3 года).'
+                  : 'Сервис на тестовом стенде — вносите вымышленные данные. Итоговая редакция политики обработки персональных данных ещё готовится.'}
+              </span>
+            </p>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pi-name">ФИО</Label>
+              <Input id="pi-name" value={user?.fullName ?? ''} disabled />
+              <p className="text-sm text-content-muted">Из профиля, попадает в договор</p>
             </div>
-            <div className="field">
-              <label>Серия паспорта</label>
-              <input
-                inputMode="numeric"
-                value={form.passportSeries}
-                onChange={(e) =>
-                  update('passportSeries', e.target.value.replace(/\D/g, '').slice(0, 4))
-                }
-                disabled={readOnly}
-              />
-              {fieldErrors.passportSeries && <span className="error">{fieldErrors.passportSeries}</span>}
+
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-32 flex-1 space-y-1.5">
+                <Label htmlFor="pi-series">Серия паспорта</Label>
+                <Input
+                  id="pi-series"
+                  inputMode="numeric"
+                  value={form.passportSeries}
+                  invalid={Boolean(fieldErrors.passportSeries)}
+                  onChange={(e) =>
+                    update('passportSeries', e.target.value.replace(/\D/g, '').slice(0, 4))
+                  }
+                  disabled={readOnly}
+                />
+                {fieldErrors.passportSeries && (
+                  <p className="flex items-center gap-1.5 text-sm text-danger">
+                    <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                    {fieldErrors.passportSeries}
+                  </p>
+                )}
+              </div>
+
+              <div className="min-w-32 flex-1 space-y-1.5">
+                <Label htmlFor="pi-number">Номер паспорта</Label>
+                <Input
+                  id="pi-number"
+                  inputMode="numeric"
+                  value={form.passportNumber}
+                  invalid={Boolean(fieldErrors.passportNumber)}
+                  onChange={(e) =>
+                    update('passportNumber', e.target.value.replace(/\D/g, '').slice(0, 6))
+                  }
+                  disabled={readOnly}
+                />
+                {fieldErrors.passportNumber && (
+                  <p className="flex items-center gap-1.5 text-sm text-danger">
+                    <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                    {fieldErrors.passportNumber}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="field">
-              <label>Номер паспорта</label>
-              <input
-                inputMode="numeric"
-                value={form.passportNumber}
-                onChange={(e) =>
-                  update('passportNumber', e.target.value.replace(/\D/g, '').slice(0, 6))
-                }
-                disabled={readOnly}
-              />
-              {fieldErrors.passportNumber && <span className="error">{fieldErrors.passportNumber}</span>}
-            </div>
-            <div className="field">
-              <label>Кем выдан</label>
-              <input
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pi-issued">Кем выдан</Label>
+              <Input
+                id="pi-issued"
                 value={form.passportIssuedBy}
+                invalid={Boolean(fieldErrors.passportIssuedBy)}
                 onChange={(e) => update('passportIssuedBy', e.target.value)}
                 maxLength={200}
                 disabled={readOnly}
               />
-              {fieldErrors.passportIssuedBy && <span className="error">{fieldErrors.passportIssuedBy}</span>}
+              {fieldErrors.passportIssuedBy && (
+                <p className="flex items-center gap-1.5 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  {fieldErrors.passportIssuedBy}
+                </p>
+              )}
             </div>
-            <div className="field">
-              <label>Дата рождения</label>
-              <input
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pi-birth">Дата рождения</Label>
+              <Input
+                id="pi-birth"
                 type="date"
                 value={form.birthDate}
+                invalid={Boolean(fieldErrors.birthDate)}
                 onChange={(e) => update('birthDate', e.target.value)}
                 disabled={readOnly}
               />
-              {fieldErrors.birthDate && <span className="error">{fieldErrors.birthDate}</span>}
+              {fieldErrors.birthDate && (
+                <p className="flex items-center gap-1.5 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  {fieldErrors.birthDate}
+                </p>
+              )}
             </div>
-            <div className="field">
-              <label>Адрес регистрации</label>
-              <textarea
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pi-address">Адрес регистрации</Label>
+              <Textarea
+                id="pi-address"
                 value={form.registrationAddress}
+                invalid={Boolean(fieldErrors.registrationAddress)}
                 onChange={(e) => update('registrationAddress', e.target.value)}
                 maxLength={300}
                 rows={3}
                 disabled={readOnly}
               />
-              {fieldErrors.registrationAddress && <span className="error">{fieldErrors.registrationAddress}</span>}
+              {fieldErrors.registrationAddress && (
+                <p className="flex items-center gap-1.5 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  {fieldErrors.registrationAddress}
+                </p>
+              )}
             </div>
-            <div className="field">
-              <label>Телефон (необязательно)</label>
-              <input
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pi-phone">Телефон (необязательно)</Label>
+              <Input
+                id="pi-phone"
                 type="tel"
                 placeholder="+7 999 123-45-67"
                 value={form.phone ?? ''}
+                invalid={Boolean(fieldErrors.phone)}
                 onChange={(e) => update('phone', e.target.value)}
                 onBlur={() => update('phone', normalizePhone(form.phone ?? ''))}
                 disabled={readOnly}
               />
-              {fieldErrors.phone && <span className="error">{fieldErrors.phone}</span>}
+              {fieldErrors.phone && (
+                <p className="flex items-center gap-1.5 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  {fieldErrors.phone}
+                </p>
+              )}
             </div>
 
             {!readOnly && needsConsent ? (
-              <div>
+              <div className="space-y-2">
                 {stored && (
-                  <p className="muted">
+                  <p className="text-sm text-content-muted">
                     Редакция политики изменилась — подтвердите согласие заново
                   </p>
                 )}
-                <label className="consent">
-                  <input
-                    type="checkbox"
+                <label className="flex cursor-pointer items-start gap-3 text-sm text-content-secondary">
+                  <Checkbox
+                    className="mt-0.5"
                     checked={accepted}
-                    onChange={(e) => setAccepted(e.target.checked)}
+                    onCheckedChange={(checked) => setAccepted(checked === true)}
                   />
-                  <span>
-                    Я даю согласие на обработку моих персональных данных в
-                    соответствии с{' '}
-                    <Link href="/legal/privacy" target="_blank" rel="noreferrer">
+                  <span className="max-w-prose">
+                    Я даю согласие на обработку моих персональных данных в соответствии с{' '}
+                    <Link
+                      href="/legal/privacy"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-sm text-violet-500 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    >
                       политикой
                     </Link>
                   </span>
                 </label>
               </div>
             ) : stored?.consentAcceptedAt ? (
-              <p className="muted">
+              <p className="text-sm text-content-muted">
                 Согласие дано {formatDateRu(stored.consentAcceptedAt)}, редакция{' '}
                 {stored.consentPolicyVersion}
               </p>
             ) : null}
 
             {!readOnly && (
-              <button
-                type="submit"
-                disabled={busy || (needsConsent && !accepted)}
-                style={{ width: '100%' }}
-              >
-                {busy ? 'Сохранение…' : 'Сохранить'}
-              </button>
-            )}
-            {saved && (
-              <p className="pill ok" style={{ marginTop: 12 }}>
-                Данные сохранены
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="submit" disabled={busy || (needsConsent && !accepted)}>
+                  {busy ? 'Сохранение…' : 'Сохранить'}
+                </Button>
+                {saved && <StatusPill tone="success">Данные сохранены</StatusPill>}
+              </div>
             )}
           </form>
-        )}
-      </div>
-    </>
+
+          <Card className="mt-8 lg:mt-0">
+            <div className="p-5">
+              <h2 className="text-lg font-bold text-content">Зачем это нужно</h2>
+              <p className="mt-2 max-w-prose text-sm text-content-secondary">
+                Паспортные данные обеих сторон печатаются в тексте договора. Без них в
+                договоре останутся прочерки.
+              </p>
+            </div>
+            <List className="border-b-0">
+              {(['landlord', 'tenant'] as const).map((role) => {
+                const own = role === status.role;
+                const party = own ? status.self : status.counterparty;
+                return (
+                  <Row
+                    key={role}
+                    icon={party.filled ? Check : Clock}
+                    iconTone={party.filled ? 'success' : 'warn'}
+                    title={ROLE_LABEL[role]}
+                    subtitle={
+                      party.filled && party.updatedAt
+                        ? `Внесены ${formatDateRu(party.updatedAt)}`
+                        : 'Не внесены'
+                    }
+                  />
+                );
+              })}
+            </List>
+          </Card>
+        </div>
+      )}
+    </AppShell>
   );
 }
 

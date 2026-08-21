@@ -101,7 +101,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-app text-content">
+    <div data-app className="min-h-screen bg-app text-content">
       {/* Сайдбар — только десктоп */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-line bg-app px-4 py-5 lg:flex">
         <div className="px-2">

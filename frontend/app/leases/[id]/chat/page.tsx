@@ -2,9 +2,15 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, ArrowUp, MessageSquare, Paperclip, Stamp } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { LeaseTabs } from '@/components/LeaseTabs';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, LeaseTabs, PageHeader } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
@@ -19,6 +25,7 @@ function ChatInner() {
   const [official, setOfficial] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [attachment, setAttachment] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -52,6 +59,7 @@ function ChatInner() {
       setBody('');
       setOfficial(false);
       if (fileRef.current) fileRef.current.value = '';
+      setAttachment(null);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка отправки');
@@ -61,32 +69,75 @@ function ChatInner() {
   }
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Чат" />
-        <LeaseTabs id={id} />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader back={`/leases/${id}`} backLabel="Договор" title="Чат" />
+      <LeaseTabs id={id} />
 
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      <div className="mx-auto flex max-w-3xl flex-col">
         {loaded && messages.length === 0 ? (
-          <EmptyState icon="chat" title="Сообщений пока нет" text="Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон." />
+          <EmptyState
+            icon={MessageSquare}
+            title="Сообщений пока нет"
+            text="Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон."
+          />
         ) : (
-          <div className="chat-thread">
+          <div className="flex flex-col gap-3 py-2">
             {messages.map((m) => {
               const mine = m.senderId === user?.id;
               return (
-                <div key={m.id} className={`bubble ${mine ? 'mine' : 'theirs'} ${m.isOfficial ? 'official' : ''}`}>
-                  {m.body}
-                  {m.attachmentStorageKey && (
-                    <button className="attach" onClick={() => openAttachment(m.id)}>
-                      📎 {m.attachmentName ?? 'файл'}
-                    </button>
-                  )}
-                  <div className="meta">
+                <div
+                  key={m.id}
+                  className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}
+                >
+                  {/* Своё сообщение отличается от чужого контрастом
+                      поверхности, а не акцентным цветом: фиолетовый в
+                      системе означает действие, а не автора. */}
+                  <div
+                    className={`max-w-[85%] rounded-lg px-4 py-3 sm:max-w-[70%] ${
+                      mine
+                        ? 'rounded-br-sm bg-ink-950 text-cream-50'
+                        : 'rounded-bl-sm border border-line bg-surface text-content'
+                    }`}
+                  >
+                    {m.isOfficial && (
+                      <span
+                        className={`mb-2 inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-semibold ${
+                          mine ? 'bg-cream-50/15 text-cream-50' : 'bg-surface-icon text-content-secondary'
+                        }`}
+                      >
+                        <Stamp aria-hidden className="size-3.5" />
+                        Официальное
+                      </span>
+                    )}
+                    <p className="whitespace-pre-wrap break-words">{m.body}</p>
+                    {m.attachmentStorageKey && (
+                      <button
+                        type="button"
+                        onClick={() => openAttachment(m.id)}
+                        className={`mt-2 flex items-center gap-2 rounded-pill px-3 py-1.5 text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                          mine ? 'bg-cream-50/15' : 'bg-surface-icon'
+                        }`}
+                      >
+                        <Paperclip aria-hidden className="size-4" />
+                        {m.attachmentName ?? 'файл'}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 px-1 text-xs text-content-muted">
                     {m.createdAt.slice(11, 16)}
                     {m.isOfficial && ' · официальное'}
                     {m.editedAt && ' · изменено'}
-                  </div>
+                  </p>
                 </div>
               );
             })}
@@ -94,25 +145,53 @@ function ChatInner() {
           </div>
         )}
 
-        <form className="composer" onSubmit={onSend}>
-          <label className="chip" style={{ cursor: 'pointer', flex: 'none' }} title="Прикрепить файл">
-            📎
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ display: 'none' }} />
+        <form onSubmit={onSend} className="sticky bottom-0 mt-4 bg-app pb-2 pt-3">
+          <div className="flex items-center gap-2">
+            <label
+              className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-pill border border-line text-content-secondary transition-colors duration-fast hover:bg-surface-hover focus-within:ring-2 focus-within:ring-focus"
+              title="Прикрепить файл"
+            >
+              <Paperclip aria-hidden className="size-5" />
+              <span className="sr-only">Прикрепить файл</span>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,application/pdf"
+                className="sr-only"
+                onChange={(e) => setAttachment(e.target.files?.[0]?.name ?? null)}
+              />
+            </label>
+
+            <Input
+              type="text"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Сообщение…"
+              aria-label="Сообщение"
+            />
+
+            <Button type="submit" size="icon" disabled={busy} aria-label="Отправить">
+              <ArrowUp aria-hidden />
+            </Button>
+          </div>
+
+          {attachment && (
+            <p className="mt-2 flex items-center gap-1.5 text-sm text-content-muted">
+              <Paperclip aria-hidden className="size-4" />
+              {attachment}
+            </p>
+          )}
+
+          <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-content-muted">
+            <Checkbox
+              checked={official}
+              onCheckedChange={(checked) => setOfficial(checked === true)}
+            />
+            Отметить как официальное сообщение
           </label>
-          <input
-            type="text"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Сообщение…"
-          />
-          <button type="submit" disabled={busy}>→</button>
         </form>
-        <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-          <input type="checkbox" checked={official} onChange={(e) => setOfficial(e.target.checked)} style={{ width: 'auto' }} />
-          Отметить как официальное сообщение
-        </label>
       </div>
-    </>
+    </AppShell>
   );
 }
 

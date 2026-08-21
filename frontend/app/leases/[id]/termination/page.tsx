@@ -2,9 +2,16 @@
 
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, Clock, KeyRound } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, PageHeader, Section } from '@/components/ui';
+import { Section } from '@/components/Section';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -78,73 +85,137 @@ function TerminationInner() {
   }
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Расторжение" subtitle="Досрочное прекращение договора" />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}`}
+        backLabel="Договор"
+        title="Расторжение"
+        subtitle="Досрочное прекращение договора"
+      />
 
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {/* Форма и список — в узкой колонке: это не табличный экран, а
+          последовательность решений по одному договору. */}
+      <div className="max-w-2xl">
         {lease?.status === 'active' && (
-          <Section title="Новая заявка">
-            <form className="card" onSubmit={onCreate}>
-              <div className="hint" style={{ marginTop: 0 }}>
-                Дата расторжения — не ранее чем через 30 дней. Инициировать может любая сторона; расторжение подтверждает собственник.
+          <Section title="Новая заявка" className="mt-0">
+            <form onSubmit={onCreate} className="space-y-4">
+              <p className="max-w-prose text-sm text-content-muted">
+                Дата расторжения — не ранее чем через 30 дней. Инициировать может любая
+                сторона; расторжение подтверждает собственник.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="term-date">Желаемая дата</Label>
+                <Input
+                  id="term-date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                />
               </div>
-              <div className="field">
-                <label>Желаемая дата</label>
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              <div className="space-y-1.5">
+                <Label htmlFor="term-reason">Причина (необязательно)</Label>
+                <Input
+                  id="term-reason"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Например: переезд в другой город"
+                />
               </div>
-              <div className="field">
-                <label>Причина (необязательно)</label>
-                <input value={reason} onChange={(e) => setReason(e.target.value)} />
-              </div>
-              <button type="submit" disabled={busy} style={{ width: '100%' }}>
+              <Button type="submit" block disabled={busy}>
                 {busy ? 'Отправка…' : 'Создать заявку'}
-              </button>
+              </Button>
             </form>
           </Section>
         )}
 
         <Section title="Заявки">
           {items.length === 0 ? (
-            <EmptyState icon="key" title="Заявок на расторжение нет" />
+            <EmptyState
+              icon={KeyRound}
+              title="Заявок на расторжение нет"
+              text="Договор действует до конца срока. Заявку может создать любая сторона."
+            />
           ) : (
-            items.map((t) => (
-              <div className="card" key={t.id}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                  <strong>{t.requestedTerminationDate.slice(0, 10)}</strong>
-                  <span className={`pill ${t.status === 'finalized' ? 'warn' : ''}`}>
-                    {TERMINATION_STATUS_LABEL[t.status]}
-                  </span>
-                </div>
-                {t.reason && <div className="muted" style={{ marginTop: 4 }}>{t.reason}</div>}
-
-                {t.status === 'pending' && isLandlord && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      <div className="field" style={{ flex: 1, minWidth: 140, margin: 0 }}>
-                        <label>Граница периода</label>
-                        <input type="date" value={override[t.id] ?? ''} onChange={(e) => setOverride((s) => ({ ...s, [t.id]: e.target.value }))} />
-                      </div>
-                      <div className="field" style={{ flex: 1, minWidth: 140, margin: 0 }}>
-                        <label>Возврат депозита, ₽</label>
-                        <input type="number" value={deposit[t.id] ?? ''} onChange={(e) => setDeposit((s) => ({ ...s, [t.id]: e.target.value }))} />
-                      </div>
-                    </div>
-                    <button disabled={busy} onClick={() => onFinalize(t.id)} style={{ width: '100%', marginTop: 12 }}>
-                      Расторгнуть договор
-                    </button>
+            <div className="divide-y divide-line border-y border-line">
+              {items.map((t) => (
+                <article key={t.id} className="py-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-lg font-bold text-content [font-variant-numeric:tabular-nums]">
+                      {t.requestedTerminationDate.slice(0, 10)}
+                    </h3>
+                    <StatusPill tone={t.status === 'finalized' ? 'neutral' : 'warn'}>
+                      {TERMINATION_STATUS_LABEL[t.status]}
+                    </StatusPill>
                   </div>
-                )}
-                {t.status === 'pending' && !isLandlord && (
-                  <p className="muted" style={{ marginTop: 8 }}>Ожидается решение собственника.</p>
-                )}
-              </div>
-            ))
+                  {t.reason && (
+                    <p className="mt-1 max-w-prose text-content-secondary">{t.reason}</p>
+                  )}
+
+                  {t.status === 'pending' && isLandlord && (
+                    <div className="mt-4 rounded-md bg-sand-200/60 p-4">
+                      <p className="mb-3 text-sm font-semibold text-content">Решение</p>
+                      <div className="flex flex-wrap gap-4">
+                        <div className="min-w-40 flex-1 space-y-1.5">
+                          <Label htmlFor={`end-${t.id}`}>Граница периода</Label>
+                          <Input
+                            id={`end-${t.id}`}
+                            type="date"
+                            value={override[t.id] ?? ''}
+                            onChange={(e) =>
+                              setOverride((s) => ({ ...s, [t.id]: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div className="min-w-40 flex-1 space-y-1.5">
+                          <Label htmlFor={`dep-${t.id}`}>Возврат депозита, ₽</Label>
+                          <Input
+                            id={`dep-${t.id}`}
+                            type="number"
+                            value={deposit[t.id] ?? ''}
+                            onChange={(e) =>
+                              setDeposit((s) => ({ ...s, [t.id]: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <p className="mt-3 max-w-prose text-sm text-content-muted">
+                        После расторжения данные сторон замораживаются и удаляются по
+                        истечении срока хранения.
+                      </p>
+                      <Button
+                        className="mt-4"
+                        disabled={busy}
+                        onClick={() => onFinalize(t.id)}
+                      >
+                        Расторгнуть договор
+                      </Button>
+                    </div>
+                  )}
+
+                  {t.status === 'pending' && !isLandlord && (
+                    <p className="mt-3 flex items-center gap-2 text-sm text-content-muted">
+                      <Clock aria-hidden className="size-4 shrink-0" />
+                      Ожидается решение собственника.
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
           )}
         </Section>
       </div>
-    </>
+    </AppShell>
   );
 }
 

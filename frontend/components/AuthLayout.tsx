@@ -19,7 +19,7 @@ export function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="auth-shell flex flex-col">
+    <div data-app className="auth-shell flex flex-col">
       <div className="p-4">
         <Link
           href={back}

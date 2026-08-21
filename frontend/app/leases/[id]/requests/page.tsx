@@ -2,9 +2,19 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, Check, Minus, Wrench } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { Fab } from '@/components/Fab';
+import { LeaseTabs } from '@/components/LeaseTabs';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, Fab, Icon, LeaseTabs, PageHeader, Sheet } from '@/components/ui';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Input, Textarea } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, Lease } from '@/lib/leases';
@@ -22,6 +32,31 @@ import {
 } from '@/lib/maintenance';
 import { formatMoney } from '@/lib/format';
 import { usePolling } from '@/lib/usePolling';
+
+/** Тон статуса заявки: открытая требует внимания, в работе — ожидание,
+ *  решённая — закрытый вопрос. */
+const STATUS_TONE: Record<MaintenanceStatus, 'danger' | 'warn' | 'success'> = {
+  open: 'danger',
+  in_progress: 'warn',
+  resolved: 'success',
+};
+
+/** Кто из сторон уже подтвердил урегулирование. Галочка и прочерк —
+ *  иконками, а не символами «✓» и «—» в тексте, как было раньше. */
+function ConfirmMark({ done, label }: { done: boolean; label: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-sm ${done ? 'text-success' : 'text-content-muted'}`}
+    >
+      {done ? (
+        <Check aria-hidden className="size-4" />
+      ) : (
+        <Minus aria-hidden className="size-4" />
+      )}
+      {label}
+    </span>
+  );
+}
 
 function RequestCard({
   req,
@@ -54,65 +89,95 @@ function RequestCard({
     ((isTenant && !req.confirmedByTenant) || (isLandlord && !req.confirmedByLandlord));
 
   return (
-    <div className="card">
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <span className="lead warm"><Icon name="wrench" /></span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-            <strong>{req.category}</strong>
-            {isLandlord ? (
-              <select
-                value={req.status}
-                disabled={busy}
-                onChange={(e) => run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))}
-                style={{ width: 'auto', padding: '4px 10px', fontSize: 'var(--text-sm)' }}
-              >
-                <option value="open">Открыта</option>
-                <option value="in_progress">В работе</option>
-                <option value="resolved">Решена</option>
-              </select>
-            ) : (
-              <span className="pill">{STATUS_LABEL[req.status]}</span>
-            )}
+    <article className="py-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-icon text-content-secondary">
+            <Wrench aria-hidden className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-content">{req.category}</h3>
+            <p className="mt-1 max-w-prose text-content-secondary">{req.description}</p>
           </div>
-          <div className="muted" style={{ marginTop: 4 }}>{req.description}</div>
         </div>
+
+        {isLandlord ? (
+          <Select
+            aria-label="Статус заявки"
+            className="h-9 w-auto min-w-40 text-sm"
+            value={req.status}
+            disabled={busy}
+            onChange={(e) => run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))}
+          >
+            <option value="open">Открыта</option>
+            <option value="in_progress">В работе</option>
+            <option value="resolved">Решена</option>
+          </Select>
+        ) : (
+          <StatusPill tone={STATUS_TONE[req.status]}>{STATUS_LABEL[req.status]}</StatusPill>
+        )}
       </div>
 
       {req.settlementAmount && (
-        <div className="hint" style={{ marginTop: 12, marginBottom: 0 }}>
-          Урегулирование: <strong>{formatMoney(req.settlementAmount)} ₽</strong> ·{' '}
-          {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}
-          {' — '}
-          {req.settlementAppliedAt
-            ? 'согласовано, добавлено в счёт'
-            : `подтвердили: арендатор ${req.confirmedByTenant ? '✓' : '—'}, собственник ${req.confirmedByLandlord ? '✓' : '—'}`}
+        <div className="mt-4 rounded-md bg-sand-200/60 px-4 py-3">
+          <p className="flex flex-wrap items-baseline gap-x-2 text-content-secondary">
+            Урегулирование:
+            <span className="text-lg font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
+              {formatMoney(req.settlementAmount)} ₽
+            </span>
+            <span>· {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}</span>
+          </p>
+          {req.settlementAppliedAt ? (
+            <p className="mt-1 flex items-center gap-1.5 text-sm text-success">
+              <Check aria-hidden className="size-4" />
+              согласовано, добавлено в счёт
+            </p>
+          ) : (
+            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="text-sm text-content-muted">подтвердили:</span>
+              <ConfirmMark done={req.confirmedByTenant} label="арендатор" />
+              <ConfirmMark done={req.confirmedByLandlord} label="собственник" />
+            </p>
+          )}
         </div>
       )}
 
       {!req.settlementAppliedAt && (
-        <div className="table-actions" style={{ marginTop: 12 }}>
-          <input
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Input
             type="number"
+            aria-label="Сумма урегулирования, ₽"
             placeholder="Сумма ₽"
-            style={{ width: 110 }}
+            className="h-10 w-32"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <select value={payer} onChange={(e) => setPayer(e.target.value as SettlementPayer)} style={{ width: 'auto' }}>
+          <Select
+            aria-label="Кто платит"
+            className="h-10 w-auto min-w-36"
+            value={payer}
+            onChange={(e) => setPayer(e.target.value as SettlementPayer)}
+          >
             <option value="tenant">Арендатор</option>
             <option value="owner">Собственник</option>
             <option value="split">Пополам</option>
-          </select>
-          <button className="secondary" disabled={busy || !amount} onClick={() => run(() => proposeSettlement(req.id, Number(amount), payer))}>
+          </Select>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy || !amount}
+            onClick={() => run(() => proposeSettlement(req.id, Number(amount), payer))}
+          >
             Предложить
-          </button>
+          </Button>
           {canConfirm && (
-            <button disabled={busy} onClick={() => run(() => confirmSettlement(req.id))}>Подтвердить</button>
+            <Button size="sm" disabled={busy} onClick={() => run(() => confirmSettlement(req.id))}>
+              Подтвердить
+            </Button>
           )}
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -166,52 +231,108 @@ function RequestsInner() {
   }
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Заявки" subtitle="Обслуживание и урегулирование" />
-        <LeaseTabs id={id} />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}`}
+        backLabel="Договор"
+        title="Заявки"
+        subtitle="Обслуживание и урегулирование"
+        action={
+          isTenant && items.length > 0 ? (
+            <Button className="hidden lg:inline-flex" onClick={() => setShowForm(true)}>
+              Новая заявка
+            </Button>
+          ) : undefined
+        }
+      />
+      <LeaseTabs id={id} />
 
-        {items.length === 0 ? (
-          <EmptyState
-            icon="wrench"
-            title="Заявок пока нет"
-            text={isTenant ? 'Создайте заявку, если что-то требует ремонта или внимания.' : 'Заявки создаёт арендатор.'}
-            action={isTenant ? <button onClick={() => setShowForm(true)}>Новая заявка</button> : undefined}
-          />
-        ) : (
-          items.map((req) => (
-            <RequestCard key={req.id} req={req} isTenant={isTenant} isLandlord={isLandlord} reload={load} />
-          ))
-        )}
-      </div>
-
-      {isTenant && items.length > 0 && <Fab onClick={() => setShowForm(true)} label="Новая заявка" />}
-
-      {showForm && (
-        <Sheet title="Новая заявка" onClose={() => setShowForm(false)}>
-          <form onSubmit={onCreate}>
-            <div className="field">
-              <label>Категория</label>
-              <input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Сантехника, электрика…" required />
-            </div>
-            <div className="field">
-              <label>Описание</label>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} required />
-            </div>
-            <div className="field">
-              <label>Фото (необязательно)</label>
-              <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" />
-            </div>
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={() => setShowForm(false)}>Отмена</button>
-              <button type="submit" disabled={busy}>{busy ? 'Отправка…' : 'Создать'}</button>
-            </div>
-          </form>
-        </Sheet>
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
       )}
-    </>
+
+      {items.length === 0 ? (
+        <EmptyState
+          icon={Wrench}
+          title="Заявок пока нет"
+          text={
+            isTenant
+              ? 'Создайте заявку, если что-то требует ремонта или внимания.'
+              : 'Заявки создаёт арендатор.'
+          }
+          action={
+            isTenant ? <Button onClick={() => setShowForm(true)}>Новая заявка</Button> : undefined
+          }
+        />
+      ) : (
+        <div className="divide-y divide-line border-y border-line">
+          {items.map((req) => (
+            <RequestCard
+              key={req.id}
+              req={req}
+              isTenant={isTenant}
+              isLandlord={isLandlord}
+              reload={load}
+            />
+          ))}
+        </div>
+      )}
+
+      {isTenant && items.length > 0 && (
+        <Fab label="Новая заявка" onClick={() => setShowForm(true)} />
+      )}
+
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent title="Новая заявка">
+          <form onSubmit={onCreate} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="req-category">Категория</Label>
+              <Input
+                id="req-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="Сантехника, электрика…"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="req-description">Описание</Label>
+              <Textarea
+                id="req-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="req-photo">Фото (необязательно)</Label>
+              <input
+                id="req-photo"
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,application/pdf"
+                className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setShowForm(false)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Отправка…' : 'Создать'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </AppShell>
   );
 }
 
