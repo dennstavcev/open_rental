@@ -1,7 +1,12 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { List, Row, Sheet } from './ui';
+import { AlertTriangle, Package, Plus } from 'lucide-react';
+import { List, Row } from './List';
+import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogFooter } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
 import { ApiError } from '@/lib/api';
 import {
   createInventoryItem,
@@ -116,94 +121,108 @@ export function InventoryEditor({
 
   return (
     <>
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <p role="alert" className="mb-3 flex items-center gap-2 text-sm text-danger">
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
       {items.length === 0 ? (
-        <div className="empty">
+        <p className="rounded-md border border-line px-5 py-6 text-center text-base text-content-muted">
           {editable
             ? 'Опись пуста — добавьте технику и мебель, которые передаёте вместе с помещением.'
             : 'Опись имущества не заполнена.'}
-        </div>
+        </p>
       ) : (
         <List>
           {items.map((item) => (
             <Row
               key={item.id}
-              icon="inbox"
+              icon={Package}
               title={item.type}
               subtitle={
                 [item.brand, item.model].filter(Boolean).join(' ') || 'Без марки и модели'
               }
-              trail={`${item.quantity} шт.`}
+              value={
+                <span className="text-base font-semibold [font-variant-numeric:tabular-nums]">
+                  {item.quantity} шт.
+                </span>
+              }
               onClick={editable ? () => openEdit(item) : undefined}
-              chevron={editable}
             />
           ))}
         </List>
       )}
 
       {editable && (
-        <button className="secondary" style={{ width: '100%' }} onClick={openNew}>
-          + Добавить позицию
-        </button>
+        <Button variant="secondary" block className="mt-3" onClick={openNew}>
+          <Plus aria-hidden /> Добавить позицию
+        </Button>
       )}
 
-      {editing && (
-        <Sheet
-          title={editing === 'new' ? 'Позиция описи' : 'Изменить позицию'}
-          onClose={() => setEditing(null)}
-        >
-          <form onSubmit={onSubmit}>
-            <div className="field">
-              <label>Что передаётся</label>
-              <input
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                placeholder="Холодильник"
-                required
-              />
-            </div>
-            <div className="field">
-              <label>Бренд (необязательно)</label>
-              <input
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                placeholder="Bosch"
-              />
-            </div>
-            <div className="field">
-              <label>Модель (необязательно)</label>
-              <input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="KGN39"
-              />
-            </div>
-            <div className="field">
-              <label>Количество</label>
-              <input
-                type="number"
-                min={1}
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
-            </div>
-            <button type="submit" disabled={busy} style={{ width: '100%' }}>
-              {busy ? 'Сохранение…' : 'Сохранить'}
-            </button>
-            {editing !== 'new' && (
-              <button
-                type="button"
-                className="secondary"
-                style={{ width: '100%', marginTop: 8 }}
-                disabled={busy}
-                onClick={onDelete}
-              >
-                Удалить позицию
-              </button>
-            )}
-          </form>
-        </Sheet>
-      )}
+      <Dialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)}>
+        {editing && (
+          <DialogContent title={editing === 'new' ? 'Позиция описи' : 'Изменить позицию'}>
+            <form onSubmit={onSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="inv-type">Что передаётся</Label>
+                <Input
+                  id="inv-type"
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  placeholder="Холодильник"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="inv-brand">Бренд (необязательно)</Label>
+                <Input
+                  id="inv-brand"
+                  value={brand}
+                  onChange={(e) => setBrand(e.target.value)}
+                  placeholder="Bosch"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="inv-model">Модель (необязательно)</Label>
+                <Input
+                  id="inv-model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="KGN39"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="inv-qty">Количество</Label>
+                <Input
+                  id="inv-qty"
+                  type="number"
+                  min={1}
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+              </div>
+
+              <DialogFooter>
+                {editing !== 'new' && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={busy}
+                    onClick={onDelete}
+                  >
+                    Удалить позицию
+                  </Button>
+                )}
+                <Button type="submit" disabled={busy}>
+                  {busy ? 'Сохранение…' : 'Сохранить'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        )}
+      </Dialog>
     </>
   );
 }

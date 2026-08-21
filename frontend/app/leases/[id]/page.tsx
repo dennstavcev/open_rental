@@ -1,11 +1,30 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Clock,
+  FileText,
+  Package,
+} from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
 import { InventoryEditor } from '@/components/InventoryEditor';
+import { LeaseStatusPill } from '@/components/LeaseStatusPill';
+import { LeaseTabs } from '@/components/LeaseTabs';
+import { List, Row } from '@/components/List';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { LeaseTabs, List, PageHeader, Row, Section } from '@/components/ui';
+import { Section } from '@/components/Section';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import {
   cancelLeaseInvitation,
@@ -19,19 +38,73 @@ import {
   LeaseSignedScan,
   listSignedScans,
   sendLease,
-  STATUS_LABEL,
   uploadSignedScan,
 } from '@/lib/leases';
 import { formatMoney } from '@/lib/format';
 import { useAuth } from '@/lib/auth';
 import { usePolling } from '@/lib/usePolling';
-import {
-  formatDateRu,
-  getPartyInfoStatus,
-  PartyInfoStatus,
-} from '@/lib/party-info';
+import { formatDateRu, getPartyInfoStatus, PartyInfoStatus } from '@/lib/party-info';
 
 const ROLE_LABEL = { landlord: 'Собственник', tenant: 'Арендатор' };
+
+/** Пара «лейбл — значение» в карточке условий. */
+function Fact({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="border-t border-line px-5 py-3 first:border-t-0">
+      <p className="text-xs font-semibold uppercase tracking-label text-content-muted">
+        {label}
+      </p>
+      <p className="mt-1 text-base font-semibold text-content [overflow-wrap:anywhere]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+/** Раскрывающийся документ: строка-переключатель и iframe с текстом. */
+function DocumentPreview({
+  title,
+  html,
+  open,
+  onToggle,
+}: {
+  title: string;
+  html: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-md border border-line">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors duration-fast hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+      >
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-icon text-content-secondary">
+          <FileText aria-hidden className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold text-content">{title}</span>
+          <span className="block text-sm text-content-muted">
+            {open ? 'Скрыть' : 'Показать текст'}
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden
+          className={`size-5 shrink-0 text-content-muted transition-transform duration-fast ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {open && (
+        <iframe
+          title={title}
+          srcDoc={html}
+          className="h-[460px] w-full border-t border-line bg-white"
+        />
+      )}
+    </div>
+  );
+}
 
 function LeaseDetailInner() {
   const { id } = useParams<{ id: string }>();
@@ -163,227 +236,128 @@ function LeaseDetailInner() {
     ? [piStatus.self.updatedAt, piStatus.counterparty.updatedAt]
         .filter((value): value is string => Boolean(value))
         .reduce<string | null>(
-          (latest, value) =>
-            !latest || new Date(value) > new Date(latest) ? value : latest,
+          (latest, value) => (!latest || new Date(value) > new Date(latest) ? value : latest),
           null,
         )
     : null;
   const documentOutdated = Boolean(
-    isLandlord &&
-      doc &&
-      latestPartyUpdate &&
-      new Date(latestPartyUpdate) > new Date(doc.createdAt),
+    isLandlord && doc && latestPartyUpdate && new Date(latestPartyUpdate) > new Date(doc.createdAt),
   );
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        {error && <div className="error">{error}</div>}
-        {!lease ? (
-          error ? null : <p className="muted">Загрузка…</p>
-        ) : (
-          <>
-            <PageHeader
-              back="/properties"
-              title={lease.property.address}
-              action={
-                <span className={`pill ${lease.status === 'active' ? 'ok' : ''}`}>
-                  {STATUS_LABEL[lease.status]}
-                </span>
-              }
-            />
+    <AppShell>
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
 
-            {lease.status === 'active' && lease.tenantId && <LeaseTabs id={id} />}
+      {!lease ? (
+        error ? null : (
+          <p className="text-content-muted">Загрузка…</p>
+        )
+      ) : (
+        <>
+          <PageHeader
+            back="/properties"
+            backLabel="Аренда"
+            title={lease.property.address}
+            action={<LeaseStatusPill status={lease.status} />}
+          />
 
-            <div style={{ textAlign: 'right', margin: '-4px 0 8px' }}>
-              <a href={`/properties/${lease.propertyId}`} className="muted">
-                Объект →
-              </a>
-            </div>
+          {lease.status === 'active' && lease.tenantId && <LeaseTabs id={id} />}
 
-            <div className="card">
-              <div className="facts">
-                <div className="fact"><div className="k">АРЕНДА</div><div className="v">{formatMoney(lease.rentAmount)} ₽/мес</div></div>
-                <div className="fact"><div className="k">ДЕПОЗИТ</div><div className="v">{formatMoney(lease.depositAmount)} ₽</div></div>
-                <div className="fact"><div className="k">ДЕНЬ ОПЛАТЫ</div><div className="v">{lease.paymentDay} числа</div></div>
-                <div className="fact"><div className="k">ПЕНЯ</div><div className="v">{lease.penaltyRatePercentPerDay}%/день</div></div>
-                <div className="fact"><div className="k">СРОК</div><div className="v">{lease.startDate.slice(0, 10)} — {lease.endDate.slice(0, 10)}</div></div>
-                <div className="fact">
-                  <div className="k">{isLandlord ? 'АРЕНДАТОР' : 'СОБСТВЕННИК'}</div>
-                  <div className="v" style={{ overflowWrap: 'anywhere' }}>
-                    {isLandlord
+          {/* Десктоп: условия и статус сторон слева фиксированной колонкой,
+              документы и сканы — справа. Одной узкой колонкой этот экран
+              читается хуже всего: он самый плотный в продукте. */}
+          <div className="lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-10">
+            <div className="space-y-6">
+              <Card>
+                <Fact label="Аренда" value={`${formatMoney(lease.rentAmount)} ₽/мес`} />
+                <Fact label="Депозит" value={`${formatMoney(lease.depositAmount)} ₽`} />
+                <Fact label="День оплаты" value={`${lease.paymentDay} числа`} />
+                <Fact
+                  label="Пеня"
+                  value={`${lease.penaltyRatePercentPerDay}%/день`}
+                />
+                <Fact
+                  label="Срок"
+                  value={`${lease.startDate.slice(0, 10)} — ${lease.endDate.slice(0, 10)}`}
+                />
+                <Fact
+                  label={isLandlord ? 'Арендатор' : 'Собственник'}
+                  value={
+                    isLandlord
                       ? lease.tenant
                         ? `${lease.tenant.fullName} · ${lease.tenant.email}`
                         : 'Ещё не принял приглашение'
-                      : `${lease.landlord.fullName} · ${lease.landlord.email}`}
-                  </div>
-                </div>
+                      : `${lease.landlord.fullName} · ${lease.landlord.email}`
+                  }
+                />
+              </Card>
+
+              <div className="flex flex-wrap justify-between gap-3 text-sm">
+                <Button asChild variant="link" size="sm" className="px-0">
+                  <Link href={`/properties/${lease.propertyId}`}>
+                    Объект <ArrowRight aria-hidden />
+                  </Link>
+                </Button>
+                {lease.status === 'active' && lease.tenantId && (
+                  <Button asChild variant="link" size="sm" className="px-0">
+                    <Link href={`/leases/${id}/termination`}>
+                      Расторжение договора <ArrowRight aria-hidden />
+                    </Link>
+                  </Button>
+                )}
               </div>
-            </div>
 
-            {lease.status === 'active' && lease.tenantId && (
-              <div style={{ textAlign: 'right', margin: '-4px 0 8px' }}>
-                <a href={`/leases/${id}/termination`} className="muted">
-                  Расторжение договора →
-                </a>
-              </div>
-            )}
-
-            <Section
-              title="Текст договора"
-              action={
-                isLandlord ? (
-                  <button className="link" onClick={onGenerate} disabled={busy}>
-                    {doc ? 'Перегенерировать' : 'Сгенерировать'}
-                  </button>
-                ) : undefined
-              }
-            >
-              {doc ? (
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <button
-                    className="row"
-                    onClick={() => setShowDoc((v) => !v)}
-                    style={{ borderBottom: showDoc ? '1px solid var(--border-default)' : 'none' }}
-                  >
-                    <span className="lead"><span style={{ fontSize: 18 }}>📄</span></span>
-                    <span className="body"><span className="t">Договор аренды</span><span className="s">{showDoc ? 'Скрыть' : 'Показать текст'}</span></span>
-                  </button>
-                  {showDoc && (
-                    <iframe
-                      title="Договор"
-                      srcDoc={doc.content}
-                      style={{ width: '100%', height: 460, border: 'none', background: '#fff' }}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="empty">Текст ещё не сгенерирован.</div>
-              )}
-            </Section>
-
-            <Section
-              title="Опись имущества"
-              action={
-                itemsCount > 0 ? (
-                  <span className="muted">{itemsCount} поз.</span>
-                ) : undefined
-              }
-            >
-              {inventoryEditable && (
-                <div className="hint">
-                  Что передаётся вместе с помещением — техника и мебель. Из
-                  этого списка собирается Приложение №1; менять его можно,
-                  пока договор остаётся черновиком.
-                </div>
-              )}
-              <InventoryEditor
-                leaseId={id}
-                editable={inventoryEditable}
-                onCountChange={setItemsCount}
-              />
-            </Section>
-
-            <Section
-              title="Приложение №1 — акт приёма-передачи"
-              action={
-                isLandlord ? (
-                  <button className="link" onClick={onGenerateAct} disabled={busy}>
-                    {actHtml ? 'Перегенерировать' : 'Сгенерировать'}
-                  </button>
-                ) : undefined
-              }
-            >
-              {actHtml ? (
-                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <button
-                    className="row"
-                    onClick={() => setShowAct((v) => !v)}
-                    style={{ borderBottom: showAct ? '1px solid var(--border-default)' : 'none' }}
-                  >
-                    <span className="lead"><span style={{ fontSize: 18 }}>📦</span></span>
-                    <span className="body"><span className="t">Акт приёма-передачи имущества</span><span className="s">{showAct ? 'Скрыть' : 'Показать текст'}</span></span>
-                  </button>
-                  {showAct && (
-                    <iframe
-                      title="Акт приёма-передачи"
-                      srcDoc={actHtml}
-                      style={{ width: '100%', height: 460, border: 'none', background: '#fff' }}
-                    />
-                  )}
-                </div>
-              ) : (
-                <div className="empty">
-                  Акт ещё не сгенерирован — печатается и подписывается вместе с
-                  договором.
-                </div>
-              )}
-            </Section>
-
-            <Section title="Персональные данные сторон">
-              {piStatus ? (
-                <>
-                  <List>
-                    {(['landlord', 'tenant'] as const).map((role) => {
-                      const own = role === piStatus.role;
-                      const party = own
-                        ? piStatus.self
-                        : piStatus.counterparty;
-                      return (
-                        <Row
-                          key={role}
-                          icon={party.filled ? 'check' : 'clock'}
-                          iconVariant={party.filled ? undefined : 'warm'}
-                          title={ROLE_LABEL[role]}
-                          subtitle={
-                            party.filled && party.updatedAt
-                              ? `Внесены ${formatDateRu(party.updatedAt)}`
-                              : 'Не внесены'
-                          }
-                          href={own ? `/leases/${id}/party-info` : undefined}
-                          chevron={own}
-                        />
-                      );
-                    })}
-                  </List>
-                  {documentOutdated && (
-                    <div className="hint">
-                      Текст договора сгенерирован раньше, чем стороны внесли
-                      данные — перегенерируйте, иначе в нём останутся прочерки.
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="empty">Статус загружается…</div>
-              )}
-            </Section>
-
-            {isLandlord && lease.status === 'draft' && (
-              <Section title="Отправить арендатору">
-                <form className="card" onSubmit={onSend}>
-                  <div className="field">
-                    <label>Email арендатора</label>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tenant@mail.ru" required />
-                  </div>
-                  <button type="submit" disabled={busy} style={{ width: '100%' }}>
-                    {busy ? 'Отправка…' : 'Отправить приглашение'}
-                  </button>
-                </form>
+              <Section title="Персональные данные сторон" className="mt-0">
+                {piStatus ? (
+                  <>
+                    <List>
+                      {(['landlord', 'tenant'] as const).map((role) => {
+                        const own = role === piStatus.role;
+                        const party = own ? piStatus.self : piStatus.counterparty;
+                        return (
+                          <Row
+                            key={role}
+                            icon={party.filled ? Check : Clock}
+                            iconTone={party.filled ? 'success' : 'warn'}
+                            title={ROLE_LABEL[role]}
+                            subtitle={
+                              party.filled && party.updatedAt
+                                ? `Внесены ${formatDateRu(party.updatedAt)}`
+                                : 'Не внесены'
+                            }
+                            href={own ? `/leases/${id}/party-info` : undefined}
+                          />
+                        );
+                      })}
+                    </List>
+                    {documentOutdated && (
+                      <p className="mt-3 flex gap-2 rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
+                        <AlertTriangle aria-hidden className="size-4 shrink-0 text-warn" />
+                        Текст договора сгенерирован раньше, чем стороны внесли данные —
+                        перегенерируйте, иначе в нём останутся прочерки.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-content-muted">Статус загружается…</p>
+                )}
               </Section>
-            )}
 
-            {isLandlord && lease.status === 'sent' && lease.invitation && (
-              <Section title="Приглашение">
-                {editingInvite ? (
-                  <form className="card" onSubmit={onSend}>
-                    <div className="hint">
-                      Прошлое приглашение перестанет действовать — арендатор
-                      получит новое по указанному адресу.
-                    </div>
-                    <div className="field">
-                      <label>Email арендатора</label>
-                      <input
+              {isLandlord && lease.status === 'draft' && (
+                <Section title="Отправить арендатору" className="mt-0">
+                  <form onSubmit={onSend} className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="tenant-email">Email арендатора</Label>
+                      <Input
+                        id="tenant-email"
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -391,96 +365,216 @@ function LeaseDetailInner() {
                         required
                       />
                     </div>
-                    <div className="table-actions">
-                      <button type="submit" disabled={busy}>
-                        {busy ? 'Отправка…' : 'Отправить заново'}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => setEditingInvite(false)}
-                      >
-                        Отмена
-                      </button>
-                    </div>
+                    <Button type="submit" block disabled={busy}>
+                      {busy ? 'Отправка…' : 'Отправить приглашение'}
+                    </Button>
                   </form>
+                </Section>
+              )}
+
+              {isLandlord && lease.status === 'sent' && lease.invitation && (
+                <Section title="Приглашение" className="mt-0">
+                  {editingInvite ? (
+                    <form onSubmit={onSend} className="space-y-3">
+                      <p className="text-sm text-content-muted">
+                        Прошлое приглашение перестанет действовать — арендатор получит
+                        новое по указанному адресу.
+                      </p>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="invite-email">Email арендатора</Label>
+                        <Input
+                          id="invite-email"
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="tenant@mail.ru"
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-3">
+                        <Button type="submit" disabled={busy}>
+                          {busy ? 'Отправка…' : 'Отправить заново'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() => setEditingInvite(false)}
+                        >
+                          Отмена
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <Card>
+                      <Fact label="Отправлено на" value={lease.invitation.invitedEmail} />
+                      <Fact label="Когда" value={lease.invitation.createdAt.slice(0, 10)} />
+                      <div className="border-t border-line p-5">
+                        <p className="text-sm text-content-muted">
+                          Арендатор ещё не принял приглашение. Проверьте адрес — если в
+                          нём опечатка, отправьте заново на верный.
+                        </p>
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => {
+                              setEmail(lease.invitation?.invitedEmail ?? '');
+                              setEditingInvite(true);
+                            }}
+                          >
+                            Изменить адрес
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={onCancelInvite}
+                          >
+                            Отозвать
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
+                  )}
+                </Section>
+              )}
+            </div>
+
+            <div className="mt-8 lg:mt-0">
+              <Section
+                title="Текст договора"
+                className="mt-0"
+                action={
+                  isLandlord ? (
+                    <Button variant="link" size="sm" onClick={onGenerate} disabled={busy}>
+                      {doc ? 'Перегенерировать' : 'Сгенерировать'}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {doc ? (
+                  <DocumentPreview
+                    title="Договор аренды"
+                    html={doc.content}
+                    open={showDoc}
+                    onToggle={() => setShowDoc((v) => !v)}
+                  />
                 ) : (
-                  <div className="card">
-                    <div className="facts">
-                      <div className="fact">
-                        <div className="k">ОТПРАВЛЕНО НА</div>
-                        <div className="v" style={{ overflowWrap: 'anywhere' }}>
-                          {lease.invitation.invitedEmail}
-                        </div>
-                      </div>
-                      <div className="fact">
-                        <div className="k">КОГДА</div>
-                        <div className="v">
-                          {lease.invitation.createdAt.slice(0, 10)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="hint" style={{ marginTop: 12 }}>
-                      Арендатор ещё не принял приглашение. Проверьте адрес — если
-                      в нём опечатка, отправьте заново на верный.
-                    </div>
-                    <div className="table-actions">
-                      <button
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => {
-                          setEmail(lease.invitation?.invitedEmail ?? '');
-                          setEditingInvite(true);
-                        }}
-                      >
-                        Изменить адрес
-                      </button>
-                      <button className="secondary" disabled={busy} onClick={onCancelInvite}>
-                        Отозвать
-                      </button>
-                    </div>
+                  <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                    Текст ещё не сгенерирован.
+                  </p>
+                )}
+              </Section>
+
+              <Section
+                title="Опись имущества"
+                action={
+                  itemsCount > 0 ? (
+                    <span className="text-content-muted">{itemsCount} поз.</span>
+                  ) : undefined
+                }
+              >
+                {inventoryEditable && (
+                  <p className="mb-3 max-w-prose text-sm text-content-muted">
+                    Что передаётся вместе с помещением — техника и мебель. Из этого
+                    списка собирается Приложение №1; менять его можно, пока договор
+                    остаётся черновиком.
+                  </p>
+                )}
+                <InventoryEditor
+                  leaseId={id}
+                  editable={inventoryEditable}
+                  onCountChange={setItemsCount}
+                />
+              </Section>
+
+              <Section
+                title="Приложение №1 — акт приёма-передачи"
+                action={
+                  isLandlord ? (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={onGenerateAct}
+                      disabled={busy}
+                    >
+                      {actHtml ? 'Перегенерировать' : 'Сгенерировать'}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {actHtml ? (
+                  <DocumentPreview
+                    title="Акт приёма-передачи имущества"
+                    html={actHtml}
+                    open={showAct}
+                    onToggle={() => setShowAct((v) => !v)}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center rounded-md border border-line px-6 py-8 text-center">
+                    <Package aria-hidden className="size-8 text-content-muted" strokeWidth={1.5} />
+                    <p className="mt-3 max-w-prose text-content-muted">
+                      Акт ещё не сгенерирован — печатается и подписывается вместе с
+                      договором.
+                    </p>
                   </div>
                 )}
               </Section>
-            )}
 
-            {(lease.status === 'sent' || lease.status === 'active') && (
-              <Section title="Подписанные сканы">
-                <div className="hint">
-                  Распечатайте текст, подпишите обеими сторонами и загрузите сканы.
-                  Договор активируется автоматически, когда сканы загрузят оба.
-                </div>
-                <List>
-                  {(['landlord', 'tenant'] as const).map((role) => {
-                    const scan = scans.find((s) => s.role === role);
-                    return (
-                      <Row
-                        key={role}
-                        icon={scan ? 'check' : 'clock'}
-                        iconVariant={scan ? undefined : 'warm'}
-                        title={ROLE_LABEL[role]}
-                        subtitle={scan ? `Загружен ${scan.confirmedAt.slice(0, 10)}` : 'Ожидается скан'}
-                        chevron={false}
+              {(lease.status === 'sent' || lease.status === 'active') && (
+                <Section title="Подписанные сканы">
+                  <p className="mb-3 max-w-prose text-sm text-content-muted">
+                    Распечатайте текст, подпишите обеими сторонами и загрузите сканы.
+                    Договор активируется автоматически, когда сканы загрузят оба.
+                  </p>
+                  <List>
+                    {(['landlord', 'tenant'] as const).map((role) => {
+                      const scan = scans.find((s) => s.role === role);
+                      return (
+                        <Row
+                          key={role}
+                          icon={scan ? Check : Clock}
+                          iconTone={scan ? 'success' : 'warn'}
+                          title={ROLE_LABEL[role]}
+                          subtitle={
+                            scan ? `Загружен ${scan.confirmedAt.slice(0, 10)}` : 'Ожидается скан'
+                          }
+                        />
+                      );
+                    })}
+                  </List>
+
+                  {lease.status === 'sent' && (
+                    <form
+                      onSubmit={onUpload}
+                      className="mt-4 flex flex-wrap items-center gap-3"
+                    >
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/jpeg,image/png,application/pdf"
+                        className="min-w-0 flex-1 text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
                       />
-                    );
-                  })}
-                </List>
-                {lease.status === 'sent' && (
-                  <form onSubmit={onUpload} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,application/pdf" style={{ flex: 1 }} />
-                    <button type="submit" disabled={busy}>{busy ? 'Загрузка…' : 'Загрузить скан'}</button>
-                  </form>
-                )}
-                {lease.status === 'active' && (
-                  <p className="pill ok" style={{ padding: '6px 12px' }}>Договор заключён и действует</p>
-                )}
-              </Section>
-            )}
-          </>
-        )}
-      </div>
-    </>
+                      <Button type="submit" disabled={busy}>
+                        {busy ? 'Загрузка…' : 'Загрузить скан'}
+                      </Button>
+                    </form>
+                  )}
+
+                  {lease.status === 'active' && (
+                    <p className="mt-4">
+                      <StatusPill tone="success">Договор заключён и действует</StatusPill>
+                    </p>
+                  )}
+                </Section>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </AppShell>
   );
 }
 

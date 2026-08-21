@@ -18,6 +18,7 @@ export function List({ className, children }: { className?: string; children: Re
  */
 export function Row({
   icon: Icon,
+  iconTone = 'neutral',
   title,
   subtitle,
   value,
@@ -26,6 +27,13 @@ export function Row({
   className,
 }: {
   icon?: LucideIcon;
+  /**
+   * По умолчанию иконка строки нейтральная: фиолетовый и функциональные
+   * цвета на ярлыке-принадлежности читались бы как ложный статус.
+   * Тон задаётся только там, где иконка И ЕСТЬ состояние — например
+   * «данные внесены / ожидаются» у стороны договора.
+   */
+  iconTone?: 'neutral' | 'success' | 'warn' | 'danger';
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   value?: React.ReactNode;
@@ -37,7 +45,17 @@ export function Row({
   const body = (
     <>
       {Icon && (
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-icon text-content-secondary">
+        <span
+          className={cn(
+            'flex size-10 shrink-0 items-center justify-center rounded-md',
+            {
+              neutral: 'bg-surface-icon text-content-secondary',
+              success: 'bg-success-weak text-success',
+              warn: 'bg-warn-weak text-warn',
+              danger: 'bg-danger-weak text-danger',
+            }[iconTone],
+          )}
+        >
           <Icon aria-hidden className="size-5" />
         </span>
       )}
