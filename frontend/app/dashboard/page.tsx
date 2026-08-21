@@ -1,19 +1,32 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  Building2,
+  ChartNoAxesColumn,
+  Check,
+  FileText,
+  Info,
+  Mail,
+  Plus,
+  Wallet,
+} from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, Icon, List, Row, Section } from '@/components/ui';
+import { EmptyState } from '@/components/EmptyState';
+import { LeaseStatusPill } from '@/components/LeaseStatusPill';
+import { List, Row } from '@/components/List';
+import { PageHeader } from '@/components/PageHeader';
+import { Section } from '@/components/Section';
+import { Stat, StatRow } from '@/components/Stat';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
 import { listProperties } from '@/lib/properties';
-import {
-  listInvitations,
-  listLeases,
-  listSignedScans,
-  Lease,
-  STATUS_LABEL,
-} from '@/lib/leases';
+import { listInvitations, listLeases, listSignedScans, Lease } from '@/lib/leases';
 import { listBills } from '@/lib/billing';
 import { listNotifications } from '@/lib/notifications';
 import { getSummary } from '@/lib/reports';
@@ -22,7 +35,7 @@ import { getPartyInfoStatus } from '@/lib/party-info';
 
 interface Action {
   key: string;
-  icon: string;
+  icon: LucideIcon;
   title: string;
   subtitle: string;
   href: string;
@@ -30,7 +43,6 @@ interface Action {
 
 function DashboardInner() {
   const { user } = useAuth();
-  const router = useRouter();
   const [income, setIncome] = useState(0);
   const [outstanding, setOutstanding] = useState(0);
   const [recent, setRecent] = useState<Lease[]>([]);
@@ -63,7 +75,7 @@ function DashboardInner() {
 
     const acts: Action[] = invs.map((inv) => ({
       key: `inv-${inv.id}`,
-      icon: 'mail',
+      icon: Mail,
       title: 'Примите приглашение',
       subtitle: `${inv.property.address} · ${inv.landlord.fullName}`,
       href: '/invitations',
@@ -72,7 +84,7 @@ function DashboardInner() {
       const n = notes.filter((x) => !x.readAt).length;
       acts.push({
         key: 'notes',
-        icon: 'bell',
+        icon: Bell,
         title: `${n} непрочитанных уведомлений`,
         subtitle: 'Посмотреть события',
         href: '/notifications',
@@ -86,13 +98,10 @@ function DashboardInner() {
         const place = addrMap[l.propertyId] ?? l.property.address;
         if (l.status === 'sent' || l.status === 'active') {
           const partyInfo = await getPartyInfoStatus(l.id).catch(() => null);
-          if (
-            partyInfo &&
-            (!partyInfo.self.filled || partyInfo.self.needsConsent)
-          ) {
+          if (partyInfo && (!partyInfo.self.filled || partyInfo.self.needsConsent)) {
             acts.push({
               key: `pii-${l.id}`,
-              icon: 'info',
+              icon: Info,
               title: 'Внесите паспортные данные',
               subtitle: place,
               href: `/leases/${l.id}/party-info`,
@@ -104,7 +113,7 @@ function DashboardInner() {
           if (!scans.find((s) => s.role === role)) {
             acts.push({
               key: `sign-${l.id}`,
-              icon: 'doc',
+              icon: FileText,
               title: 'Подпишите договор',
               subtitle: place,
               href: `/leases/${l.id}`,
@@ -112,12 +121,14 @@ function DashboardInner() {
           }
         } else if (l.status === 'active') {
           const bills = await listBills(l.id).catch(() => []);
-          const fin = bills.find((b) => b.bill.stage === 'final' && b.bill.paymentStatus !== 'paid');
+          const fin = bills.find(
+            (b) => b.bill.stage === 'final' && b.bill.paymentStatus !== 'paid',
+          );
           if (fin) {
             if (role === 'tenant' && fin.bill.paymentStatus === 'pending') {
               acts.push({
                 key: `pay-${l.id}`,
-                icon: 'wallet',
+                icon: Wallet,
                 title: `Оплатите ${formatMoney(fin.totalDue)} ₽`,
                 subtitle: place,
                 href: `/leases/${l.id}/bills`,
@@ -126,7 +137,7 @@ function DashboardInner() {
             if (role === 'landlord' && fin.bill.paymentStatus === 'payment_claimed') {
               acts.push({
                 key: `confirm-${l.id}`,
-                icon: 'wallet',
+                icon: Wallet,
                 title: 'Подтвердите оплату',
                 subtitle: place,
                 href: `/leases/${l.id}/bills`,
@@ -146,87 +157,115 @@ function DashboardInner() {
   }, [load]);
 
   const name = user?.email?.split('@')[0] ?? '';
+  // Без хвостового «г.» — в интерфейсе он лишний шум.
+  const today = new Date()
+    .toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    .replace(/\s*г\.$/, '');
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <div className="hero">
-          <div className="greeting">Здравствуйте, {name}</div>
-          <div className="metrics">
-            <div className="metric">
-              <div className="v">{formatMoney(income)} ₽</div>
-              <div className="k">Получено всего</div>
-            </div>
-            <div className="metric">
-              <div className="v">{formatMoney(outstanding)} ₽</div>
-              <div className="k">Ожидается к оплате</div>
+    <AppShell>
+      <PageHeader title={`Здравствуйте, ${name}`} subtitle={today} />
+
+      {/* Деньги — самое заметное на экране: это бытовой финансовый
+          инструмент, а не витрина. */}
+      <StatRow>
+        <Stat label="Получено всего" value={`${formatMoney(income)} ₽`} tone="money" />
+        <Stat label="Ожидается к оплате" value={`${formatMoney(outstanding)} ₽`} />
+      </StatRow>
+
+      <Section title="Сегодня">
+        {loading ? (
+          <List>
+            {[0, 1].map((i) => (
+              <Row
+                key={i}
+                title={<Skeleton className="h-4 w-48" />}
+                subtitle={<Skeleton className="mt-1 h-3 w-32" />}
+              />
+            ))}
+          </List>
+        ) : actions.length === 0 ? (
+          <div className="flex items-center gap-4 rounded-md border border-line px-5 py-4">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-success-weak text-success">
+              <Check aria-hidden className="size-5" />
+            </span>
+            <div>
+              <p className="font-semibold text-content">Всё под контролем</p>
+              <p className="text-sm text-content-muted">
+                Нет действий, требующих вашего внимания.
+              </p>
             </div>
           </div>
-        </div>
+        ) : (
+          <List>
+            {actions.map((a) => (
+              <Row
+                key={a.key}
+                icon={a.icon}
+                title={a.title}
+                subtitle={a.subtitle}
+                href={a.href}
+              />
+            ))}
+          </List>
+        )}
+      </Section>
 
-        <Section title="Сегодня">
-          {loading ? (
-            <List>
-              <Row title={<span className="skeleton" style={{ display: 'inline-block', width: 200, height: 14 }} />} chevron={false} />
-            </List>
-          ) : actions.length === 0 ? (
-            <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <span className="lead"><Icon name="check" /></span>
-              <div>
-                <div style={{ fontWeight: 'var(--weight-semibold)' }}>Всё под контролем</div>
-                <div className="muted">Нет действий, требующих вашего внимания.</div>
-              </div>
-            </div>
-          ) : (
-            <List>
-              {actions.map((a) => (
-                <Row key={a.key} icon={a.icon} iconVariant="warm" title={a.title} subtitle={a.subtitle} href={a.href} />
-              ))}
-            </List>
-          )}
-        </Section>
-
-        <div className="chips">
-          <button className="chip" onClick={() => router.push('/onboarding')}>
-            <Icon name="plus" /> Сдать объект
-          </button>
-          <button className="chip" onClick={() => router.push('/properties')}>
-            <Icon name="building" /> Аренда
-          </button>
-          <button className="chip" onClick={() => router.push('/reports')}>
-            <Icon name="chart" /> Отчёты
-          </button>
-        </div>
-
-        <Section
-          title="Договоры"
-          action={recent.length > 0 ? <span className="link" onClick={() => router.push('/properties')}>Все</span> : undefined}
-        >
-          {loading ? null : recent.length === 0 ? (
-            <EmptyState
-              icon="doc"
-              title="Пока нет договоров"
-              text="Заведите объект и оформите первый договор аренды."
-              action={<button onClick={() => router.push('/onboarding')}>Начать</button>}
-            />
-          ) : (
-            <List>
-              {recent.map((l) => (
-                <Row
-                  key={l.id}
-                  icon="doc"
-                  title={addr[l.propertyId] ?? l.property.address}
-                  subtitle={`${formatMoney(l.rentAmount)} ₽/мес · с ${l.startDate.slice(0, 10)}`}
-                  trail={<span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>{STATUS_LABEL[l.status]}</span>}
-                  href={`/leases/${l.id}`}
-                />
-              ))}
-            </List>
-          )}
-        </Section>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/onboarding">
+            <Plus aria-hidden /> Сдать объект
+          </Link>
+        </Button>
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/properties">
+            <Building2 aria-hidden /> Аренда
+          </Link>
+        </Button>
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/reports">
+            <ChartNoAxesColumn aria-hidden /> Отчёты
+          </Link>
+        </Button>
       </div>
-    </>
+
+      <Section
+        title="Договоры"
+        action={
+          recent.length > 0 ? (
+            <Button asChild variant="link" size="sm">
+              <Link href="/properties">Все</Link>
+            </Button>
+          ) : undefined
+        }
+      >
+        {loading ? null : recent.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title="Пока нет договоров"
+            text="Заведите объект и оформите первый договор аренды."
+            action={
+              <Button asChild>
+                <Link href="/onboarding">Начать</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <List>
+            {recent.map((l) => (
+              <Row
+                key={l.id}
+                icon={FileText}
+                title={addr[l.propertyId] ?? l.property.address}
+                subtitle={`${formatMoney(l.rentAmount)} ₽/мес · с ${l.startDate.slice(0, 10)}`}
+                value={<LeaseStatusPill status={l.status} />}
+                href={`/leases/${l.id}`}
+              />
+            ))}
+          </List>
+        )}
+      </Section>
+    </AppShell>
   );
 }
 

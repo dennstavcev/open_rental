@@ -116,7 +116,7 @@ const config: Config = {
       },
       backgroundImage: {
         accent: 'var(--gradient-accent)',
-        app: 'var(--gradient-app)',
+        'app-gradient': 'var(--gradient-app)',
       },
       transitionTimingFunction: {
         standard: 'var(--ease-standard)',

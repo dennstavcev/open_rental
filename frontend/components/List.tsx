@@ -41,10 +41,17 @@ export function Row({
           <Icon aria-hidden className="size-5" />
         </span>
       )}
+      {/* Заголовок переносится, а не обрезается: на мобильном адрес
+          объекта длиннее строки почти всегда, а «ул. Ленина, 15, …»
+          вместо адреса — потеря того самого, ради чего строка нужна. */}
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-semibold text-content">{title}</span>
+        <span className="block break-words font-semibold text-content [overflow-wrap:anywhere]">
+          {title}
+        </span>
         {subtitle && (
-          <span className="mt-0.5 block truncate text-sm text-content-muted">{subtitle}</span>
+          <span className="mt-0.5 block break-words text-sm text-content-muted">
+            {subtitle}
+          </span>
         )}
       </span>
       {value && <span className="shrink-0 text-right">{value}</span>}
