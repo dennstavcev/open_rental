@@ -2,13 +2,24 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
 import { useRouter } from 'next/navigation';
-import { EmptyState, List, PageHeader, Row, Section, Segmented, Sheet } from '@/components/ui';
+import { AlertTriangle, FileText, Gauge, Wallet } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { LeaseStatusPill } from '@/components/LeaseStatusPill';
+import { List, Row } from '@/components/List';
+import { PageHeader } from '@/components/PageHeader';
+import { RequireAuth } from '@/components/RequireAuth';
+import { Section } from '@/components/Section';
+import { Segmented } from '@/components/Segmented';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
 import { getProperty, Property } from '@/lib/properties';
-import { addElevenMonths, createLease, Lease, listLeases, STATUS_LABEL } from '@/lib/leases';
+import { addElevenMonths, createLease, Lease, listLeases } from '@/lib/leases';
 import {
   createMeter,
   createService,
@@ -241,46 +252,66 @@ function PropertyDetailInner() {
   }
 
   const addBtn = (kind: SheetKind) => (
-    <button className="link" onClick={() => setSheet(kind)}>
-      + Добавить
-    </button>
+    <Button variant="link" size="sm" onClick={() => setSheet(kind)}>
+      Добавить
+    </Button>
+  );
+
+  const errorBox = error && !sheet && (
+    <p
+      role="alert"
+      className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+    >
+      <AlertTriangle aria-hidden className="size-4 shrink-0" />
+      {error}
+    </p>
+  );
+
+  const sheetError = error && sheet && (
+    <p className="flex items-center gap-2 text-sm text-danger">
+      <AlertTriangle aria-hidden className="size-4 shrink-0" />
+      {error}
+    </p>
   );
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        {!property ? (
-          <p className="muted">Загрузка…</p>
-        ) : (
-          <>
-            <PageHeader
-              back="/properties"
-              title={property.address}
-              subtitle={`${property.propertyType}${property.areaSqm ? ` · ${property.areaSqm} м²` : ''} · ${property.timezone}`}
-            />
-            {error && !sheet && <div className="error">{error}</div>}
-            {readMsg && <div className="hint">{readMsg}</div>}
+    <AppShell>
+      {!property ? (
+        <p className="text-content-muted">Загрузка…</p>
+      ) : (
+        <>
+          <PageHeader
+            back="/properties"
+            backLabel="Аренда"
+            title={property.address}
+            subtitle={`${property.propertyType}${property.areaSqm ? ` · ${property.areaSqm} м²` : ''} · ${property.timezone}`}
+          />
+          {errorBox}
+          {readMsg && (
+            <p className="mb-4 rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
+              {readMsg}
+            </p>
+          )}
 
+          <div className="lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-10">
             <Section
               title="Договор"
+              className="mt-0"
               action={leases.length === 0 ? addBtn('lease') : undefined}
             >
               {leases.length === 0 ? (
-                <div className="empty">По этому объекту ещё нет договора.</div>
+                <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                  По этому объекту ещё нет договора.
+                </p>
               ) : (
                 <List>
                   {leases.map((l) => (
                     <Row
                       key={l.id}
-                      icon="doc"
+                      icon={FileText}
                       title={`Договор · ${formatMoney(l.rentAmount)} ₽/мес`}
                       subtitle={`${l.startDate.slice(0, 10)} — ${l.endDate.slice(0, 10)}`}
-                      trail={
-                        <span className={`pill ${l.status === 'active' ? 'ok' : ''}`}>
-                          {STATUS_LABEL[l.status]}
-                        </span>
-                      }
+                      value={<LeaseStatusPill status={l.status} />}
                       href={`/leases/${l.id}`}
                     />
                   ))}
@@ -288,64 +319,80 @@ function PropertyDetailInner() {
               )}
             </Section>
 
-            <Section title="Счётчики" action={addBtn('meter')}>
-              {meters.length === 0 ? (
-                <div className="empty">Счётчиков пока нет.</div>
-              ) : (
-                <List>
-                  {meters.map((m) => (
-                    <Row
-                      key={m.id}
-                      icon="gauge"
-                      title={m.name}
-                      subtitle={
-                        `${METER_TYPE_LABEL[m.meterType]}` +
-                        (m.serialNumber ? ` · № ${m.serialNumber}` : '') +
-                        ` · ${m.lastReadingValue} ${METER_UNIT_LABEL[m.meterType]}` +
-                        (m.isActive ? '' : ' · отключён')
-                      }
-                      trail={`${formatMoney(m.tariff)} ₽`}
-                      onClick={() => openEditMeter(m)}
-                    />
-                  ))}
-                </List>
-              )}
-              {meters.some((m) => m.isActive) && (
-                <button className="secondary" style={{ width: '100%' }} onClick={openReadingSheet}>
-                  Подать показание
-                </button>
-              )}
-            </Section>
+            <div className="mt-8 lg:mt-0">
+              <Section title="Счётчики" className="mt-0" action={addBtn('meter')}>
+                {meters.length === 0 ? (
+                  <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                    Счётчиков пока нет.
+                  </p>
+                ) : (
+                  <List>
+                    {meters.map((m) => (
+                      <Row
+                        key={m.id}
+                        icon={Gauge}
+                        title={m.name}
+                        subtitle={
+                          `${METER_TYPE_LABEL[m.meterType]}` +
+                          (m.serialNumber ? ` · № ${m.serialNumber}` : '') +
+                          ` · ${m.lastReadingValue} ${METER_UNIT_LABEL[m.meterType]}`
+                        }
+                        value={
+                          <span className="flex flex-col items-end gap-1">
+                            <span className="font-semibold [font-variant-numeric:tabular-nums]">
+                              {formatMoney(m.tariff)} ₽
+                            </span>
+                            {!m.isActive && <StatusPill tone="neutral">Отключён</StatusPill>}
+                          </span>
+                        }
+                        onClick={() => openEditMeter(m)}
+                      />
+                    ))}
+                  </List>
+                )}
+                {meters.some((m) => m.isActive) && (
+                  <Button variant="secondary" className="mt-3" onClick={openReadingSheet}>
+                    Подать показание
+                  </Button>
+                )}
+              </Section>
 
-            <Section title="Услуги" action={addBtn('service')}>
-              {services.length === 0 ? (
-                <div className="empty">Услуг пока нет.</div>
-              ) : (
-                <List>
-                  {services.map((s) => (
-                    <Row
-                      key={s.id}
-                      icon="wallet"
-                      title={s.name}
-                      subtitle={SERVICE_TYPE_LABEL[s.serviceType]}
-                      trail={`${formatMoney(s.price)} ₽`}
-                      chevron={false}
-                    />
-                  ))}
-                </List>
-              )}
-            </Section>
-          </>
-        )}
-      </div>
+              <Section title="Услуги" action={addBtn('service')}>
+                {services.length === 0 ? (
+                  <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                    Услуг пока нет.
+                  </p>
+                ) : (
+                  <List>
+                    {services.map((s) => (
+                      <Row
+                        key={s.id}
+                        icon={Wallet}
+                        title={s.name}
+                        subtitle={SERVICE_TYPE_LABEL[s.serviceType]}
+                        value={
+                          <span className="font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
+                            {formatMoney(s.price)} ₽
+                          </span>
+                        }
+                      />
+                    ))}
+                  </List>
+                )}
+              </Section>
+            </div>
+          </div>
+        </>
+      )}
 
-      {sheet === 'lease' && (
-        <Sheet title="Новый договор" onClose={closeSheet}>
-          <form onSubmit={onCreateLease}>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Начало</label>
-                <input
+      <Dialog open={sheet === 'lease'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Новый договор">
+          <form onSubmit={onCreateLease} className="space-y-4">
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-36 flex-1 space-y-1.5">
+                <Label htmlFor="l-start">Начало</Label>
+                <Input
+                  id="l-start"
                   type="date"
                   value={lStartDate}
                   onChange={(e) => {
@@ -355,203 +402,376 @@ function PropertyDetailInner() {
                   required
                 />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Окончание</label>
-                <input type="date" value={lEndDate} onChange={(e) => setLEndDate(e.target.value)} required />
+              <div className="min-w-36 flex-1 space-y-1.5">
+                <Label htmlFor="l-end">Окончание</Label>
+                <Input
+                  id="l-end"
+                  type="date"
+                  value={lEndDate}
+                  onChange={(e) => setLEndDate(e.target.value)}
+                  required
+                />
               </div>
             </div>
-            <div className="field">
-              <label>Аренда, ₽/мес</label>
-              <input type="number" value={lRentAmount} onChange={(e) => setLRentAmount(e.target.value)} required />
+            <div className="space-y-1.5">
+              <Label htmlFor="l-rent">Аренда, ₽/мес</Label>
+              <Input
+                id="l-rent"
+                type="number"
+                value={lRentAmount}
+                onChange={(e) => setLRentAmount(e.target.value)}
+                required
+              />
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Депозит, ₽</label>
-                <input type="number" value={lDepositAmount} onChange={(e) => setLDepositAmount(e.target.value)} />
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-28 flex-1 space-y-1.5">
+                <Label htmlFor="l-deposit">Депозит, ₽</Label>
+                <Input
+                  id="l-deposit"
+                  type="number"
+                  value={lDepositAmount}
+                  onChange={(e) => setLDepositAmount(e.target.value)}
+                />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>День оплаты</label>
-                <input type="number" value={lPaymentDay} onChange={(e) => setLPaymentDay(e.target.value)} min={1} max={28} />
+              <div className="min-w-28 flex-1 space-y-1.5">
+                <Label htmlFor="l-day">День оплаты</Label>
+                <Input
+                  id="l-day"
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={lPaymentDay}
+                  onChange={(e) => setLPaymentDay(e.target.value)}
+                />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Пеня, %/день</label>
-                <input type="number" step="0.01" value={lPenalty} onChange={(e) => setLPenalty(e.target.value)} min={0} />
+              <div className="min-w-28 flex-1 space-y-1.5">
+                <Label htmlFor="l-penalty">Пеня, %/день</Label>
+                <Input
+                  id="l-penalty"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={lPenalty}
+                  onChange={(e) => setLPenalty(e.target.value)}
+                />
               </div>
             </div>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
-              <button type="submit" disabled={busy}>{busy ? 'Создание…' : 'Создать черновик'}</button>
-            </div>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Создание…' : 'Создать черновик'}
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {sheet === 'service' && (
-        <Sheet title="Новая услуга" onClose={closeSheet}>
-          <form onSubmit={onAddService}>
-            <div className="field">
-              <label>Название</label>
-              <input value={svcName} onChange={(e) => setSvcName(e.target.value)} placeholder="Интернет, уборка…" required />
+      <Dialog open={sheet === 'service'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Новая услуга">
+          <form onSubmit={onAddService} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="svc-name">Название</Label>
+              <Input
+                id="svc-name"
+                value={svcName}
+                onChange={(e) => setSvcName(e.target.value)}
+                placeholder="Интернет, уборка…"
+                required
+              />
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Стоимость, ₽</label>
-                <input type="number" value={svcPrice} onChange={(e) => setSvcPrice(e.target.value)} required />
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-36 flex-1 space-y-1.5">
+                <Label htmlFor="svc-price">Стоимость, ₽</Label>
+                <Input
+                  id="svc-price"
+                  type="number"
+                  value={svcPrice}
+                  onChange={(e) => setSvcPrice(e.target.value)}
+                  required
+                />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Тип</label>
-                <select value={svcType} onChange={(e) => setSvcType(e.target.value as ServiceType)}>
+              <div className="min-w-36 flex-1 space-y-1.5">
+                <Label htmlFor="svc-type">Тип</Label>
+                <Select
+                  id="svc-type"
+                  value={svcType}
+                  onChange={(e) => setSvcType(e.target.value as ServiceType)}
+                >
                   <option value="monthly">Ежемесячная</option>
                   <option value="one_time">Разовая</option>
-                </select>
+                </Select>
               </div>
             </div>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
-              <button type="submit" disabled={busy}>Добавить</button>
-            </div>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                Добавить
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {sheet === 'meter' && (
-        <Sheet title="Новый счётчик" onClose={closeSheet}>
-          <form onSubmit={onAddMeter}>
-            <div className="field">
-              <label>Название</label>
-              <input placeholder="напр. ГВС, Электро день" value={mName} onChange={(e) => setMName(e.target.value)} required />
+      <Dialog open={sheet === 'meter'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Новый счётчик">
+          <form onSubmit={onAddMeter} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="m-name">Название</Label>
+              <Input
+                id="m-name"
+                placeholder="напр. ГВС, Электро день"
+                value={mName}
+                onChange={(e) => setMName(e.target.value)}
+                required
+              />
             </div>
-            <div className="field">
-              <label>Серийный номер</label>
-              <input placeholder="необязательно" value={mSerialNumber} onChange={(e) => setMSerialNumber(e.target.value)} />
+            <div className="space-y-1.5">
+              <Label htmlFor="m-serial">Серийный номер</Label>
+              <Input
+                id="m-serial"
+                placeholder="необязательно"
+                value={mSerialNumber}
+                onChange={(e) => setMSerialNumber(e.target.value)}
+              />
             </div>
-            <div className="field">
-              <label>Тип счётчика</label>
-              <select value={mType} onChange={(e) => onMeterTypeChange(e.target.value as MeterType)}>
+            <div className="space-y-1.5">
+              <Label htmlFor="m-type">Тип счётчика</Label>
+              <Select
+                id="m-type"
+                value={mType}
+                onChange={(e) => onMeterTypeChange(e.target.value as MeterType)}
+              >
                 <option value="electricity">Электричество</option>
                 <option value="water">Вода</option>
                 <option value="gas">Газ</option>
                 <option value="heating">Отопление</option>
-              </select>
+              </Select>
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Начальное показание, {METER_UNIT_LABEL[mType]}</label>
-                <input type="number" step="0.001" min={0} value={mInitialReading} onChange={(e) => setMInitialReading(e.target.value)} required />
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="m-initial">
+                  Начальное показание, {METER_UNIT_LABEL[mType]}
+                </Label>
+                <Input
+                  id="m-initial"
+                  type="number"
+                  step="0.001"
+                  min={0}
+                  value={mInitialReading}
+                  onChange={(e) => setMInitialReading(e.target.value)}
+                  required
+                />
               </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Тариф, ₽/{METER_UNIT_LABEL[mType]}</label>
-                <input type="number" step="0.0001" value={mTariff} onChange={(e) => setMTariff(e.target.value)} required />
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="m-tariff">Тариф, ₽/{METER_UNIT_LABEL[mType]}</Label>
+                <Input
+                  id="m-tariff"
+                  type="number"
+                  step="0.0001"
+                  value={mTariff}
+                  onChange={(e) => setMTariff(e.target.value)}
+                  required
+                />
               </div>
             </div>
-            <p className="muted">
-              Значение на приборе на момент постановки на учёт — от него считается расход первого показания.
+            <p className="max-w-prose text-sm text-content-muted">
+              Значение на приборе на момент постановки на учёт — от него считается расход
+              первого показания.
             </p>
-            <div className="field">
-              <label>Дата поверки (необязательно)</label>
-              <input type="date" value={mCalibrationDueDate} onChange={(e) => setMCalibrationDueDate(e.target.value)} />
-            </div>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
-              <button type="submit" disabled={busy}>Добавить</button>
-            </div>
-          </form>
-        </Sheet>
-      )}
-
-      {sheet === 'editMeter' && (
-        <Sheet title="Счётчик" onClose={closeSheet}>
-          <form onSubmit={onSaveMeterEdit}>
-            <div className="field">
-              <label>Название</label>
-              <input value={eName} onChange={(e) => setEName(e.target.value)} required />
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Серийный номер</label>
-                <input placeholder="необязательно" value={eSerialNumber} onChange={(e) => setESerialNumber(e.target.value)} />
-              </div>
-              <div className="field" style={{ flex: 1 }}>
-                <label>Тариф</label>
-                <input type="number" step="0.0001" value={eTariff} onChange={(e) => setETariff(e.target.value)} required />
-              </div>
-            </div>
-            <div className="field">
-              <label>Статус</label>
-              <Segmented<'active' | 'off'>
-                options={[
-                  { value: 'active', label: 'Активен' },
-                  { value: 'off', label: 'Отключён' },
-                ]}
-                value={eActive ? 'active' : 'off'}
-                onChange={(v) => setEActive(v === 'active')}
+            <div className="space-y-1.5">
+              <Label htmlFor="m-calibration">Дата поверки (необязательно)</Label>
+              <Input
+                id="m-calibration"
+                type="date"
+                value={mCalibrationDueDate}
+                onChange={(e) => setMCalibrationDueDate(e.target.value)}
               />
             </div>
-            {!eActive && (
-              <p className="muted">Отключённый счётчик не будет принимать новые показания.</p>
-            )}
-            <div className="field">
-              <label>Дата поверки (необязательно)</label>
-              <input type="date" value={eCalibrationDueDate} onChange={(e) => setECalibrationDueDate(e.target.value)} />
-            </div>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
-              <button type="submit" disabled={busy}>Сохранить</button>
-            </div>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                Добавить
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {sheet === 'reading' && (
-        <Sheet title="Показание счётчика" onClose={closeSheet}>
-          <form onSubmit={onSubmitReading}>
-            <div className="field">
-              <label>Счётчик</label>
-              <select value={readMeterId} onChange={(e) => selectMeterForReading(e.target.value)}>
-                {meters.filter((m) => m.isActive).map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({METER_TYPE_LABEL[m.meterType]})
-                  </option>
-                ))}
-              </select>
+      <Dialog open={sheet === 'editMeter'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Счётчик">
+          <form onSubmit={onSaveMeterEdit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="e-name">Название</Label>
+              <Input
+                id="e-name"
+                value={eName}
+                onChange={(e) => setEName(e.target.value)}
+                required
+              />
             </div>
-            <div className="field">
-              <label>
-                Новое показание{selectedMeter ? `, ${METER_UNIT_LABEL[selectedMeter.meterType]}` : ''}
-              </label>
-              <input type="number" step="0.001" value={readValue} onChange={(e) => setReadValue(e.target.value)} required />
-              {selectedMeter && (
-                <p className="muted">Текущее: {selectedMeter.lastReadingValue} {METER_UNIT_LABEL[selectedMeter.meterType]}</p>
-              )}
-              {previewConsumption != null && previewConsumption < 0 && (
-                <p className="error">Новое показание не может быть меньше текущего</p>
-              )}
+            <div className="flex flex-wrap gap-4">
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="e-serial">Серийный номер</Label>
+                <Input
+                  id="e-serial"
+                  placeholder="необязательно"
+                  value={eSerialNumber}
+                  onChange={(e) => setESerialNumber(e.target.value)}
+                />
+              </div>
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="e-tariff">Тариф</Label>
+                <Input
+                  id="e-tariff"
+                  type="number"
+                  step="0.0001"
+                  value={eTariff}
+                  onChange={(e) => setETariff(e.target.value)}
+                  required
+                />
+              </div>
             </div>
-            {previewConsumption != null && previewConsumption >= 0 && (
-              <p className="hint">
-                Расход {previewConsumption.toFixed(3)} {selectedMeter ? METER_UNIT_LABEL[selectedMeter.meterType] : ''}
-                {' · начислится '}
-                {previewCost != null ? formatMoney(previewCost) : ''} ₽
+            <div className="space-y-1.5">
+              <Label>Статус</Label>
+              <div>
+                <Segmented<'active' | 'off'>
+                  ariaLabel="Статус счётчика"
+                  options={[
+                    { value: 'active', label: 'Активен' },
+                    { value: 'off', label: 'Отключён' },
+                  ]}
+                  value={eActive ? 'active' : 'off'}
+                  onChange={(v) => setEActive(v === 'active')}
+                />
+              </div>
+            </div>
+            {!eActive && (
+              <p className="max-w-prose text-sm text-content-muted">
+                Отключённый счётчик не будет принимать новые показания.
               </p>
             )}
-            <div className="field">
-              <label>Фото счётчика</label>
-              <input ref={readFileRef} type="file" accept="image/jpeg,image/png" required />
+            <div className="space-y-1.5">
+              <Label htmlFor="e-calibration">Дата поверки (необязательно)</Label>
+              <Input
+                id="e-calibration"
+                type="date"
+                value={eCalibrationDueDate}
+                onChange={(e) => setECalibrationDueDate(e.target.value)}
+              />
             </div>
-            <p className="muted">Показания принимаются только по объекту с действующим договором.</p>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={closeSheet}>Отмена</button>
-              <button type="submit" disabled={busy || (previewConsumption != null && previewConsumption < 0)}>Отправить</button>
-            </div>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                Сохранить
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
-    </>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={sheet === 'reading'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Показание счётчика">
+          <form onSubmit={onSubmitReading} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="r-meter">Счётчик</Label>
+              <Select
+                id="r-meter"
+                value={readMeterId}
+                onChange={(e) => selectMeterForReading(e.target.value)}
+              >
+                {meters
+                  .filter((m) => m.isActive)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({METER_TYPE_LABEL[m.meterType]})
+                    </option>
+                  ))}
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="r-value">
+                Новое показание
+                {selectedMeter ? `, ${METER_UNIT_LABEL[selectedMeter.meterType]}` : ''}
+              </Label>
+              <Input
+                id="r-value"
+                type="number"
+                step="0.001"
+                value={readValue}
+                invalid={previewConsumption != null && previewConsumption < 0}
+                onChange={(e) => setReadValue(e.target.value)}
+                required
+              />
+              {selectedMeter && (
+                <p className="text-sm text-content-muted">
+                  Текущее: {selectedMeter.lastReadingValue}{' '}
+                  {METER_UNIT_LABEL[selectedMeter.meterType]}
+                </p>
+              )}
+              {previewConsumption != null && previewConsumption < 0 && (
+                <p className="flex items-center gap-1.5 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  Новое показание не может быть меньше текущего
+                </p>
+              )}
+            </div>
+
+            {/* Предпросмотр расхода и суммы: пользователь видит цену
+                своего ввода до отправки, а не после начисления. */}
+            {previewConsumption != null && previewConsumption >= 0 && (
+              <p className="rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
+                Расход {previewConsumption.toFixed(3)}{' '}
+                {selectedMeter ? METER_UNIT_LABEL[selectedMeter.meterType] : ''} · начислится{' '}
+                <span className="font-bold text-terracotta-500">
+                  {previewCost != null ? formatMoney(previewCost) : ''} ₽
+                </span>
+              </p>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="r-photo">Фото счётчика</Label>
+              <input
+                id="r-photo"
+                ref={readFileRef}
+                type="file"
+                accept="image/jpeg,image/png"
+                required
+                className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
+              />
+            </div>
+
+            <p className="max-w-prose text-sm text-content-muted">
+              Показания принимаются только по объекту с действующим договором.
+            </p>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy || (previewConsumption != null && previewConsumption < 0)}
+              >
+                Отправить
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </AppShell>
   );
 }
 

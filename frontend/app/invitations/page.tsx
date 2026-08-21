@@ -1,9 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Mail } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, Icon, PageHeader } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { ApiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import {
@@ -52,66 +56,91 @@ function InvitationsInner() {
   }
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader title="Приглашения" subtitle="Договоры, куда вас пригласили арендатором" />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader title="Приглашения" subtitle="Договоры, куда вас пригласили арендатором" />
 
-        {loading ? (
-          <p className="muted">Загрузка…</p>
-        ) : items.length === 0 ? (
-          <EmptyState icon="mail" title="Новых приглашений нет" text="Когда собственник отправит вам договор, приглашение появится здесь." />
-        ) : (
-          items.map((inv) => (
-            <div className="card" key={inv.id}>
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-                <span className="lead warm">
-                  <Icon name="mail" />
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          {error}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-content-muted">Загрузка…</p>
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={Mail}
+          title="Новых приглашений нет"
+          text="Когда собственник отправит вам договор, приглашение появится здесь."
+        />
+      ) : (
+        <div className="space-y-4">
+          {items.map((inv) => (
+            // Приглашение — единственное действие экрана, поэтому здесь
+            // карточка уместна: ей нужна элевация.
+            <Card key={inv.id} className="lg:flex lg:items-center lg:gap-8 lg:p-5">
+              <div className="flex min-w-0 items-start gap-4 p-5 lg:flex-1 lg:p-0">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-icon text-content-secondary">
+                  <Mail aria-hidden className="size-5" />
                 </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 'var(--weight-semibold)' }}>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold text-content [overflow-wrap:anywhere]">
                     {inv.property.address}
-                  </div>
-                  <div className="muted">
+                  </p>
+                  <p className="mt-0.5 text-sm text-content-muted [overflow-wrap:anywhere]">
                     Приглашает {inv.landlord.fullName} · {inv.landlord.email}
-                  </div>
+                  </p>
                 </div>
               </div>
-              <div className="facts" style={{ marginTop: 14 }}>
-                <div className="fact">
-                  <div className="k">АРЕНДА</div>
-                  <div className="v">{formatMoney(inv.lease.rentAmount)} ₽/мес</div>
+
+              <dl className="flex flex-wrap gap-x-8 gap-y-3 border-t border-line px-5 py-4 lg:shrink-0 lg:border-l lg:border-t-0 lg:py-0 lg:pr-0">
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-label text-content-muted">
+                    Аренда
+                  </dt>
+                  <dd className="mt-1 text-xl font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
+                    {formatMoney(inv.lease.rentAmount)} ₽/мес
+                  </dd>
                 </div>
-                <div className="fact">
-                  <div className="k">СРОК</div>
-                  <div className="v">
+                <div>
+                  <dt className="text-xs font-semibold uppercase tracking-label text-content-muted">
+                    Срок
+                  </dt>
+                  <dd className="mt-1 font-semibold text-content [font-variant-numeric:tabular-nums]">
                     {inv.lease.startDate.slice(0, 10)} — {inv.lease.endDate.slice(0, 10)}
-                  </div>
+                  </dd>
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                <button
-                  style={{ flex: 1 }}
+              </dl>
+
+              <div className="flex gap-3 border-t border-line px-5 py-4 lg:shrink-0 lg:flex-col lg:border-t-0 lg:p-0">
+                <Button
+                  className="flex-1 lg:flex-none"
                   disabled={busyId === inv.id}
                   onClick={() => act(inv.id, true)}
                 >
                   Принять
-                </button>
-                <button
-                  className="secondary"
-                  style={{ flex: 1 }}
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="flex-1 lg:flex-none"
                   disabled={busyId === inv.id}
                   onClick={() => act(inv.id, false)}
                 >
                   Отклонить
-                </button>
+                </Button>
               </div>
-            </div>
-          ))
-        )}
-      </div>
-    </>
+            </Card>
+          ))}
+
+          <p className="max-w-prose text-sm text-content-muted">
+            Приняв приглашение, вы становитесь арендатором по этому договору.
+          </p>
+        </div>
+      )}
+    </AppShell>
   );
 }
 
