@@ -197,7 +197,9 @@
     --text-primary: var(--text-on-photo);
     --text-secondary: rgba(251, 246, 236, 0.86);
     --text-muted: var(--text-on-photo-muted);
-    --gradient-accent: #ffffff;
+    /* Именно градиентом, а не цветом: токен подставляется в
+       background-image, и простой hex там не работает. */
+    --gradient-accent: linear-gradient(0deg, #ffffff 0%, #ffffff 100%);
     --text-on-accent: var(--ink-950);
     --focus-ring: rgba(255, 255, 255, 0.85);
     background: #2a1e12;
