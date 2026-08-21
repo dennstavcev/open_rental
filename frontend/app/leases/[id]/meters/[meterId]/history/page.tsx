@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, Gauge } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { List, Row } from '@/components/List';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, List, PageHeader, Row } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { listReadingHistory, MeterReading } from '@/lib/catalog';
 
@@ -30,31 +33,50 @@ function MeterHistoryInner() {
   }, [load]);
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}/meters`} title="История показаний" />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}/meters`}
+        backLabel="Показания"
+        title="История показаний"
+      />
 
-        {loading ? (
-          <p className="muted">Загрузка…</p>
-        ) : readings.length === 0 ? (
-          <EmptyState icon="gauge" title="Показаний пока нет" text="По этому счётчику ещё не подавали показания в текущем договоре." />
-        ) : (
-          <List>
-            {readings.map((r) => (
-              <Row
-                key={r.id}
-                icon="gauge"
-                title={r.value}
-                subtitle={r.readingDate.slice(0, 10)}
-                chevron={false}
-              />
-            ))}
-          </List>
-        )}
-      </div>
-    </>
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-content-muted">Загрузка…</p>
+      ) : readings.length === 0 ? (
+        <EmptyState
+          icon={Gauge}
+          title="Показаний пока нет"
+          text="По этому счётчику ещё не подавали показания в текущем договоре."
+        />
+      ) : (
+        <List className="max-w-prose">
+          {readings.map((r) => (
+            <Row
+              key={r.id}
+              icon={Gauge}
+              title={r.readingDate.slice(0, 10)}
+              value={
+                // Показание — то, ради чего экран открыт: крупно и
+                // табличными цифрами, чтобы столбец читался вертикально.
+                <span className="text-lg font-bold [font-variant-numeric:tabular-nums]">
+                  {r.value}
+                </span>
+              }
+            />
+          ))}
+        </List>
+      )}
+    </AppShell>
   );
 }
 

@@ -1,24 +1,33 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarDays, Droplet, Flame, Gauge, Zap } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { LeaseTabs } from '@/components/LeaseTabs';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, Icon, LeaseTabs, PageHeader, Sheet } from '@/components/ui';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { listMetersForLease, submitReading, Meter, METER_UNIT_LABEL } from '@/lib/catalog';
 import { usePolling } from '@/lib/usePolling';
 
-const METER_BADGE_ICON: Record<Meter['meterType'], string> = {
-  electricity: 'bolt',
-  water: 'droplet',
-  gas: 'flame',
-  heating: 'flame',
+const METER_ICON: Record<Meter['meterType'], LucideIcon> = {
+  electricity: Zap,
+  water: Droplet,
+  gas: Flame,
+  heating: Flame,
 };
 
 function MetersHubInner() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const [meters, setMeters] = useState<Meter[]>([]);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
@@ -74,91 +83,147 @@ function MetersHubInner() {
   }
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Показания" subtitle="Счётчики по этому договору" />
-        <LeaseTabs id={id} />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}`}
+        backLabel="Договор"
+        title="Показания"
+        subtitle="Счётчики по этому договору"
+      />
+      <LeaseTabs id={id} />
 
-        {loading ? (
-          <p className="muted">Загрузка…</p>
-        ) : meters.length === 0 ? (
-          <EmptyState icon="gauge" title="Счётчиков пока нет" text="Собственник ещё не добавил счётчики по этому объекту." />
-        ) : (
-          meters.map((m) => (
-            <div className="card" key={m.id}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className={`meter-badge ${m.meterType}`}>
-                  <Icon name={METER_BADGE_ICON[m.meterType]} />
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {/* Срок текущего периода — общий для всех счётчиков, поэтому вынесен
+          из карточек наверх: это главное, что нужно знать арендатору. */}
+      {!loading && meters.length > 0 && (
+        <p className="mb-6 flex items-center gap-3 rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
+          <CalendarDays aria-hidden className="size-4 shrink-0 text-content-muted" />
+          Текущий период: {periodStart} — {periodEnd}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="text-content-muted">Загрузка…</p>
+      ) : meters.length === 0 ? (
+        <EmptyState
+          icon={Gauge}
+          title="Счётчиков пока нет"
+          text="Собственник ещё не добавил счётчики по этому объекту."
+        />
+      ) : (
+        <div className="divide-y divide-line border-y border-line">
+          {meters.map((m) => {
+            const Icon = METER_ICON[m.meterType];
+            return (
+              <article
+                key={m.id}
+                className="flex flex-wrap items-center gap-4 py-4 sm:flex-nowrap"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-surface-icon text-content-secondary">
+                  <Icon aria-hidden className="size-5" />
                 </span>
-                <div style={{ minWidth: 0 }}>
-                  <strong>{m.name}</strong>
-                  {m.serialNumber && <div className="muted">№ {m.serialNumber}</div>}
+
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-content">{m.name}</p>
+                  <p className="text-sm text-content-muted">
+                    {m.serialNumber ? `№ ${m.serialNumber} · ` : ''}
+                    Текущее: {m.lastReadingValue} {METER_UNIT_LABEL[m.meterType]}
+                  </p>
+                  {m.calibrationDueDate && (
+                    <p className="mt-1 text-sm text-content-muted">
+                      Поверка счётчика: {m.calibrationDueDate.slice(0, 10)}
+                    </p>
+                  )}
                 </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {!m.isActive ? (
+                    <StatusPill tone="neutral" icon={Ban}>
+                      Отключён
+                    </StatusPill>
+                  ) : m.currentPeriodSubmitted ? (
+                    <StatusPill tone="success">Показания внесены</StatusPill>
+                  ) : (
+                    <StatusPill tone="warn">Внесите показания до {periodEnd}</StatusPill>
+                  )}
+
+                  <Button asChild variant="secondary" size="sm">
+                    <Link href={`/leases/${id}/meters/${m.id}/history`}>История</Link>
+                  </Button>
+                  {m.isActive && !m.currentPeriodSubmitted && (
+                    <Button size="sm" onClick={() => openReading(m)}>
+                      Внести
+                    </Button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={readMeter !== null} onOpenChange={(open) => !open && setReadMeter(null)}>
+        {readMeter && (
+          <DialogContent title={`Показание · ${readMeter.name}`}>
+            <form onSubmit={onSubmitReading} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="reading">
+                  Новое показание, {METER_UNIT_LABEL[readMeter.meterType]}
+                </Label>
+                <Input
+                  id="reading"
+                  type="number"
+                  step="0.001"
+                  value={readValue}
+                  onChange={(e) => setReadValue(e.target.value)}
+                  required
+                />
+                <p className="text-sm text-content-muted">
+                  Текущее: {readMeter.lastReadingValue} {METER_UNIT_LABEL[readMeter.meterType]}
+                </p>
               </div>
 
-              <div className="kv-block">
-                {m.calibrationDueDate && (
-                  <div className="kv">
-                    <span className="k">Поверка счётчика</span>
-                    <span>{m.calibrationDueDate.slice(0, 10)}</span>
-                  </div>
-                )}
-                <div className="kv">
-                  <span className="k">Текущий период</span>
-                  <span>{periodStart} — {periodEnd}</span>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reading-photo">Фото счётчика</Label>
+                <input
+                  id="reading-photo"
+                  ref={readFileRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  required
+                  className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
+                />
               </div>
 
-              {m.isActive && (
-                <div className={`status-banner ${m.currentPeriodSubmitted ? 'done' : 'due'}`}>
-                  <Icon name={m.currentPeriodSubmitted ? 'check' : 'info'} />
-                  <span>
-                    {m.currentPeriodSubmitted
-                      ? 'Показания внесены'
-                      : `Внесите показания до ${periodEnd}`}
-                  </span>
-                </div>
+              {error && (
+                <p className="flex items-center gap-2 text-sm text-danger">
+                  <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                  {error}
+                </p>
               )}
 
-              <div className="sheet-actions" style={{ marginTop: 10 }}>
-                <button
-                  className="secondary"
-                  onClick={() => router.push(`/leases/${id}/meters/${m.id}/history`)}
-                >
-                  История
-                </button>
-                {m.isActive && !m.currentPeriodSubmitted && (
-                  <button onClick={() => openReading(m)}>Внести</button>
-                )}
-              </div>
-            </div>
-          ))
+              <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setReadMeter(null)}>
+                  Отмена
+                </Button>
+                <Button type="submit" disabled={busy}>
+                  {busy ? 'Отправка…' : 'Отправить'}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
         )}
-      </div>
-
-      {readMeter && (
-        <Sheet title={`Показание · ${readMeter.name}`} onClose={() => setReadMeter(null)}>
-          <form onSubmit={onSubmitReading}>
-            <div className="field">
-              <label>Новое показание, {METER_UNIT_LABEL[readMeter.meterType]}</label>
-              <input type="number" step="0.001" value={readValue} onChange={(e) => setReadValue(e.target.value)} required />
-              <p className="muted">Текущее: {readMeter.lastReadingValue} {METER_UNIT_LABEL[readMeter.meterType]}</p>
-            </div>
-            <div className="field">
-              <label>Фото счётчика</label>
-              <input ref={readFileRef} type="file" accept="image/jpeg,image/png" required />
-            </div>
-            {error && <div className="error">{error}</div>}
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={() => setReadMeter(null)}>Отмена</button>
-              <button type="submit" disabled={busy}>{busy ? 'Отправка…' : 'Отправить'}</button>
-            </div>
-          </form>
-        </Sheet>
-      )}
-    </>
+      </Dialog>
+    </AppShell>
   );
 }
 
