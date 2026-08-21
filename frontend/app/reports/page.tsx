@@ -72,7 +72,7 @@ function ReportsInner() {
           {/* Три таблицы вместо одной сводной: у них разные ключи и
               разные вопросы — «сколько пришло», «кто должен», «что скоро
               заканчивается». */}
-          <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-10">
+          <div className="mt-2 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-10">
             <div>
               <Section title="Доходы по месяцам">
                 {data.income.byMonth.length === 0 ? (
