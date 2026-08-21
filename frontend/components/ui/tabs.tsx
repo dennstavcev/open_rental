@@ -32,7 +32,7 @@ export const TabsTrigger = forwardRef<
     className={cn(
       'relative -mb-px whitespace-nowrap border-b-2 border-transparent px-1 pb-3 pt-2',
       'text-base font-medium text-content-muted transition duration-fast ease-standard',
-      'hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-app',
+      'hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app',
       'data-[state=active]:border-violet-500 data-[state=active]:font-semibold data-[state=active]:text-violet-500',
       className,
     )}

@@ -35,7 +35,7 @@ export function Segmented<T extends string>({
           className={cn(
             'rounded-pill px-4 py-1.5 text-sm font-medium text-content-secondary',
             'transition duration-fast ease-standard hover:bg-surface-hover',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
             'data-[state=on]:bg-violet-500 data-[state=on]:text-content-onAccent data-[state=on]:hover:bg-violet-500',
           )}
         >

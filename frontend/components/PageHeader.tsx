@@ -27,7 +27,7 @@ export function PageHeader({
       {back && (
         <Link
           href={back}
-          className="mb-2 inline-flex items-center gap-1.5 rounded-sm text-sm text-content-muted transition-colors duration-fast hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          className="mb-2 inline-flex items-center gap-1.5 rounded-sm text-sm text-content-muted transition-colors duration-fast hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           <ArrowLeft aria-hidden className="size-4" />
           {backLabel}

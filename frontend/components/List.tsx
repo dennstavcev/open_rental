@@ -57,7 +57,7 @@ export function Row({
   const shared = cn(
     'flex w-full items-center gap-4 px-1 py-4 text-left transition-colors duration-fast',
     interactive &&
-      'hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-inset',
+      'hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-inset',
     className,
   );
 

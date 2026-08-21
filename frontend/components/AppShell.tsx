@@ -127,7 +127,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={doLogout}
-            className="mt-2 flex w-full items-center gap-2 rounded-pill px-2 py-2 text-sm text-content-muted transition-colors duration-fast hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            className="mt-2 flex w-full items-center gap-2 rounded-pill px-2 py-2 text-sm text-content-muted transition-colors duration-fast hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
           >
             <LogOut aria-hidden className="size-4" />
             Выйти
@@ -142,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           type="button"
           onClick={doLogout}
           aria-label="Выйти"
-          className="rounded-pill p-2 text-content-muted transition-colors duration-fast hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          className="rounded-pill p-2 text-content-muted transition-colors duration-fast hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           <LogOut aria-hidden className="size-5" />
         </button>
@@ -164,7 +164,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               aria-current={active ? 'page' : undefined}
               className={cn(
                 'relative flex flex-1 flex-col items-center justify-center gap-1 text-xs',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-500',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus',
                 active ? 'font-semibold text-violet-500' : 'text-content-muted',
               )}
             >
@@ -194,7 +194,7 @@ function NavLink({
       aria-current={active ? 'page' : undefined}
       className={cn(
         'relative flex items-center gap-3 rounded-pill py-2 pl-3 pr-2 text-base transition-colors duration-fast',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
         active
           ? 'font-semibold text-violet-500'
           : 'text-content-secondary hover:bg-surface-hover',

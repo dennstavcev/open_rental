@@ -32,7 +32,7 @@ export function LeaseTabs({ id }: { id: string }) {
             aria-current={active ? 'page' : undefined}
             className={cn(
               '-mb-px whitespace-nowrap border-b-2 px-1 pb-3 text-base transition-colors duration-fast',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
               active
                 ? 'border-violet-500 font-semibold text-violet-500'
                 : 'border-transparent text-content-muted hover:text-content',

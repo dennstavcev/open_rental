@@ -66,6 +66,7 @@
   --border-default: rgba(233, 211, 172, 0.9);
   --border-strong: rgba(74, 60, 40, 0.24);
   --border-photo: rgba(255, 255, 255, 0.32);
+  --focus-ring: var(--violet-500);
   --border-photo-focus: rgba(255, 255, 255, 0.65);
   --surface-input-photo: rgba(250, 240, 224, 0.18);
 
@@ -165,6 +166,66 @@
   --accent: var(--violet-500);
   --accent-weak: rgba(138, 79, 224, 0.12);
   --shadow: var(--shadow-card);
+}
+
+/* --------------------------------------------------------------------------
+   Экраны до входа (`/login`, `/register`).
+
+   На мобильном — фирменное интерьерное фото во весь экран с тёмным
+   скримом: это единственные экраны, где фото уместно (на плотных рабочих
+   экранах оно мешает читать данные, см. docs/DESIGN_SYSTEM.md). На
+   десктопе фото не показывается — исходник 367px, растянутый на широкое
+   окно, выглядит мылом; там тёплый градиент и узкая форма по центру.
+
+   Переключение сделано подменой токенов, а не вторым набором классов:
+   компоненты читают те же `--surface-input`, `--text-primary`,
+   `--gradient-accent`, поэтому на фото они сами становятся светлыми, а
+   первичная кнопка — белой, как требует система.
+   -------------------------------------------------------------------------- */
+.auth-shell {
+  position: relative;
+  min-height: 100dvh;
+  background: var(--gradient-app);
+}
+
+@media (max-width: 1023px) {
+  .auth-shell {
+    --surface-input: rgba(255, 255, 255, 0.16);
+    --surface-hover: rgba(255, 255, 255, 0.12);
+    --border-default: var(--border-photo);
+    --border-strong: rgba(255, 255, 255, 0.4);
+    --text-primary: var(--text-on-photo);
+    --text-secondary: rgba(251, 246, 236, 0.86);
+    --text-muted: var(--text-on-photo-muted);
+    --gradient-accent: #ffffff;
+    --text-on-accent: var(--ink-950);
+    --focus-ring: rgba(255, 255, 255, 0.85);
+    background: #2a1e12;
+    overflow: hidden;
+  }
+  .auth-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('/photo-interior-warm.png') center 68% / cover no-repeat;
+  }
+  /* Скрим снизу вверх: текст читается, фото не превращается в серую
+     заливку. Коробчатая frosted-панель не используется намеренно. */
+  .auth-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(20, 14, 8, 0.55) 0%,
+      rgba(20, 14, 8, 0.25) 32%,
+      rgba(20, 14, 8, 0.82) 100%
+    );
+  }
+  .auth-shell > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 * {
@@ -699,204 +760,6 @@ button:disabled {
   color: var(--terracotta-500);
 }
 
-/* ===== Photo backdrop (auth / onboarding — see docs/DESIGN_SYSTEM.md, "Фото-фон") =====
-   Wrapping a screen in .photo-backdrop switches the contextual tokens that
-   .card / input / button / .muted etc. read from, so the same component
-   classes render correctly on top of the brand photo instead of the app-shell
-   gradient.
-
-   Source-quality note (see docs/DESIGN_SYSTEM.md): the only UI-free plate of
-   the brand photo in the handoff is 367×340px — every larger reference asset
-   has text/tiles/frost baked into the pixels, so there is no clean higher-res
-   crop to pull instead. Stretching a 367px image edge-to-edge across a wide
-   desktop viewport (previously `background: url(...) cover` on the full-width
-   container) upscales it 3-4x and looks visibly pixelated. Fix: the photo
-   lives in a width-capped panel (`--photo-panel-w`, mobile-viewport-sized)
-   centered on the page instead of covering the whole browser window. On real
-   mobile widths (the product's primary target — see docs/MVP_SCOPE.md, ~90%
-   mobile usage) the panel IS the full viewport, so nothing changes there;
-   only wide desktop windows get letterboxed with the app gradient on the
-   sides instead of a blurred photo. */
-.photo-backdrop {
-  /* photo-context tokens — light text/controls over the photo (mobile) */
-  --text-primary: var(--text-on-photo);
-  --text-muted: var(--text-on-photo-muted);
-  --text-faint: var(--text-on-photo-faint);
-  --surface-input: rgba(255, 255, 255, 0.16);
-  --surface-input-hover: rgba(255, 255, 255, 0.26);
-  --border-default: var(--border-photo);
-  --border-focus: var(--border-photo-focus);
-  --btn-primary-bg: #ffffff;
-  --btn-primary-text: var(--ink-900);
-  --btn-secondary-bg: rgba(255, 255, 255, 0.16);
-  --btn-secondary-text: var(--text-on-photo);
-  --btn-secondary-border: var(--border-photo);
-
-  position: relative;
-  min-height: 100dvh;
-  width: 100%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: #2a1e12;
-}
-/* Full-bleed brand photo (mobile welcome screen) */
-.photo-backdrop::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: url('/photo-interior-warm.png') center 68% / cover no-repeat;
-  z-index: 0;
-}
-/* Bottom-up legibility gradient — no boxy frosted panel */
-.photo-backdrop::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(20, 14, 8, 0) 28%,
-    rgba(20, 14, 8, 0.35) 60%,
-    rgba(20, 14, 8, 0.82) 100%
-  );
-  z-index: 1;
-}
-.photo-backdrop .backdrop-scrim {
-  display: none;
-}
-.photo-backdrop .backdrop-content {
-  position: relative;
-  z-index: 2;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 460px;
-  margin: 0 auto;
-  padding-bottom: calc(26px + env(safe-area-inset-bottom));
-}
-.photo-backdrop button {
-  box-shadow: var(--shadow-btn);
-}
-.photo-backdrop button.secondary {
-  box-shadow: none;
-}
-
-.auth-topbar {
-  display: flex;
-  align-items: center;
-  padding: 16px 24px;
-}
-.auth-topbar button,
-.auth-topbar a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  color: var(--text-on-photo) !important;
-  font-size: var(--text-lg);
-  line-height: 1;
-  text-decoration: none;
-}
-.auth-brand {
-  margin-top: auto;
-  padding: 0 24px 16px;
-  font-family: var(--font-sans);
-  font-weight: var(--weight-bold);
-  font-size: var(--text-3xl);
-  letter-spacing: var(--tracking-wide);
-  color: var(--text-on-photo);
-  line-height: var(--leading-tight);
-}
-.auth-form {
-  padding: 0 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-}
-.auth-form h1 {
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
-  margin: 0 0 2px;
-}
-.auth-divider {
-  text-align: center;
-  color: var(--text-on-photo-muted);
-  font-size: var(--text-sm);
-  margin-top: 2px;
-}
-.auth-policy {
-  margin: 2px 0 0;
-  text-align: center;
-  font-size: var(--text-xs);
-}
-.auth-policy a {
-  color: var(--text-muted);
-}
-
-/* Desktop: drop the photo (source is low-res) — clean centered card on the
-   warm app gradient. Removes the nested "boxes on boxes" look entirely. */
-@media (min-width: 700px) {
-  .photo-backdrop {
-    --text-primary: var(--ink-900);
-    --text-muted: rgba(36, 27, 18, 0.62);
-    --text-faint: rgba(36, 27, 18, 0.4);
-    --surface-input: rgba(255, 255, 255, 0.7);
-    --surface-input-hover: #ffffff;
-    --border-default: rgba(60, 40, 20, 0.16);
-    --border-focus: var(--terracotta-400);
-    --btn-primary-bg: var(--gradient-accent);
-    --btn-primary-text: #ffffff;
-    --btn-secondary-bg: rgba(255, 255, 255, 0.6);
-    --btn-secondary-text: var(--ink-900);
-    --btn-secondary-border: rgba(60, 40, 20, 0.22);
-    background: var(--surface-app-gradient);
-    background-attachment: fixed;
-    justify-content: center;
-    align-items: center;
-    padding: 24px;
-  }
-  .photo-backdrop::before,
-  .photo-backdrop::after {
-    display: none;
-  }
-  .photo-backdrop .backdrop-content {
-    flex: none;
-    max-width: 400px;
-    background: var(--surface-card-strong);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
-    padding-bottom: 26px;
-  }
-  .auth-topbar a,
-  .auth-topbar button {
-    background: transparent;
-    color: var(--ink-900) !important;
-  }
-  .auth-brand {
-    margin-top: 0;
-    text-align: center;
-    font-size: var(--text-2xl);
-    padding: 6px 24px 2px;
-    color: var(--ink-900);
-  }
-  .auth-form h1 {
-    text-align: center;
-  }
-}
-
 /* ===== AddTile — empty-state "+" pattern (from source: AddTile.jsx) =====
    Used for "add first X" moments — properties list before the first
    property, services/meters on the property card before the first item.
@@ -940,20 +803,6 @@ button:disabled {
   width: 100%;
   height: 64px;
   border-radius: var(--radius-md);
-}
-
-/* ===== Auth (legacy alias kept in case referenced elsewhere) ===== */
-.auth-wrap {
-  max-width: 380px;
-  margin: 12vh auto;
-  padding: 0 20px;
-}
-.auth-wrap .brand {
-  text-align: center;
-  font-weight: var(--weight-bold);
-  font-size: var(--text-xl);
-  letter-spacing: var(--tracking-wide);
-  margin-bottom: 18px;
 }
 
 /* ==========================================================================

@@ -16,7 +16,7 @@ export const Checkbox = forwardRef<
     className={cn(
       'peer size-5 shrink-0 rounded-sm border border-line-strong bg-surface-input',
       'transition duration-fast ease-standard',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 focus-visible:ring-offset-app',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-app',
       'disabled:cursor-not-allowed disabled:opacity-50',
       'data-[state=checked]:border-violet-500 data-[state=checked]:bg-violet-500 data-[state=checked]:text-white',
       className,

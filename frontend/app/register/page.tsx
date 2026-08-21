@@ -3,6 +3,11 @@
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
+import { AuthLayout } from '@/components/AuthLayout';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 
@@ -30,67 +35,87 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="photo-backdrop">
-      <div className="backdrop-scrim" />
-      <div className="backdrop-content">
-        <div className="auth-topbar">
-          <Link href="/login" aria-label="Назад">←</Link>
-        </div>
-        <div className="auth-brand">
-          SOFTRENT
-          <div
-            style={{
-              fontWeight: 'var(--weight-regular)',
-              fontSize: 'var(--text-sm)',
-              letterSpacing: 0,
-              color: 'var(--text-on-photo-muted)',
-              marginTop: 6,
-            }}
-          >
-            Всё нужное — в одном окне.
-          </div>
-        </div>
-        <form className="auth-form" onSubmit={onSubmit}>
-          <h1>Регистрация</h1>
-          <input
-            placeholder="ФИО"
+    <AuthLayout back="/login" tagline="Всё нужное — в одном окне.">
+      <h1 className="mt-6 text-3xl font-bold tracking-tight text-content">Регистрация</h1>
+
+      <form className="mt-6 space-y-4" onSubmit={onSubmit}>
+        <div className="space-y-1.5">
+          <Label htmlFor="fullName">ФИО</Label>
+          <Input
+            id="fullName"
+            autoComplete="name"
+            placeholder="Иван Иванов"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             required
           />
-          <input
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="email">Почта</Label>
+          <Input
+            id="email"
             type="email"
-            placeholder="Почта"
+            autoComplete="email"
+            placeholder="ivan@mail.ru"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <input
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Пароль</Label>
+          <Input
+            id="password"
             type="password"
-            placeholder="Пароль (мин. 8 символов)"
+            autoComplete="new-password"
+            placeholder="Минимум 8 символов"
+            minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            minLength={8}
             required
           />
-          <p className="muted" style={{ margin: '-8px 0 0', textAlign: 'center' }}>
-            Роль не выбирается: вы становитесь собственником, добавив объект,
-            или арендатором, приняв приглашение на договор.
+        </div>
+
+        <p className="text-center text-sm text-content-muted">
+          Роль не выбирается: вы становитесь собственником, добавив объект, или
+          арендатором, приняв приглашение на договор.
+        </p>
+
+        {error && (
+          <p
+            role="alert"
+            className="flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+          >
+            <AlertTriangle aria-hidden className="size-4 shrink-0" />
+            {error}
           </p>
-          {error && <div className="error">{error}</div>}
-          <button type="submit" disabled={busy}>
-            {busy ? 'Регистрация…' : 'Зарегистрироваться'}
-          </button>
-          <p className="auth-divider">
-            Уже есть аккаунт? <Link href="/login">Войти</Link>
-          </p>
-          <p className="auth-policy">
-            <Link href="/legal/privacy">
-              Политика обработки персональных данных
-            </Link>
-          </p>
-        </form>
-      </div>
-    </div>
+        )}
+
+        <Button type="submit" block disabled={busy}>
+          {busy ? 'Регистрация…' : 'Зарегистрироваться'}
+        </Button>
+      </form>
+
+      <p className="mt-5 text-center text-sm text-content-muted">
+        Уже есть аккаунт?{' '}
+        <Link
+          href="/login"
+          className="rounded-sm font-semibold text-content underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:text-violet-500"
+        >
+          Войти
+        </Link>
+      </p>
+
+      <p className="mt-4 text-center text-sm">
+        <Link
+          href="/legal/privacy"
+          className="rounded-sm text-content-muted underline underline-offset-4 transition-colors duration-fast hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:text-violet-500 lg:no-underline lg:hover:underline"
+        >
+          Политика обработки персональных данных
+        </Link>
+      </p>
+    </AuthLayout>
   );
 }

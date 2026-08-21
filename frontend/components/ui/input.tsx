@@ -6,7 +6,7 @@ import { cn } from './cn';
 const base =
   'w-full rounded-pill border bg-surface-input px-5 text-base text-content ' +
   'placeholder:text-content-muted transition duration-fast ease-standard ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:border-violet-500 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:border-violet-500 ' +
   'disabled:opacity-60 disabled:cursor-not-allowed ' +
   '[font-variant-numeric:tabular-nums]';
 

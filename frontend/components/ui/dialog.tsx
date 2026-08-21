@@ -56,7 +56,7 @@ export const DialogContent = forwardRef<
         </DialogPrimitive.Title>
         <DialogPrimitive.Close
           aria-label="Закрыть"
-          className="rounded-pill p-1 text-content-muted transition duration-fast hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          className="rounded-pill p-1 text-content-muted transition duration-fast hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           <X className="size-5" />
         </DialogPrimitive.Close>

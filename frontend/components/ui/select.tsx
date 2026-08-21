@@ -20,7 +20,7 @@ export const Select = forwardRef<
       className={cn(
         'h-11 w-full appearance-none rounded-pill border border-line bg-surface-input pl-5 pr-11',
         'text-base text-content transition duration-fast ease-standard',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:border-violet-500',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:border-violet-500',
         'disabled:opacity-60 disabled:cursor-not-allowed',
         className,
       )}

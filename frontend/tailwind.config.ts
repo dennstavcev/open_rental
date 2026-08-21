@@ -28,6 +28,7 @@ const config: Config = {
         success: { DEFAULT: 'var(--success)', weak: 'var(--success-weak)', line: 'var(--success-line)' },
         warn: { DEFAULT: 'var(--warn)', weak: 'var(--warn-weak)', line: 'var(--warn-line)' },
         overlay: 'var(--overlay)',
+        focus: 'var(--focus-ring)',
 
         // Семантические алиасы — предпочтительны в разметке: экран
         // говорит «поверхность карточки», а не «кремовый 50».
