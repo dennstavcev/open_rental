@@ -2,9 +2,19 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { AlertTriangle, Copy, Wallet } from 'lucide-react';
+import { AppShell } from '@/components/AppShell';
+import { EmptyState } from '@/components/EmptyState';
+import { LeaseTabs } from '@/components/LeaseTabs';
+import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
-import { TopBar } from '@/components/TopBar';
-import { EmptyState, LeaseTabs, PageHeader, Section, Sheet } from '@/components/ui';
+import { Section } from '@/components/Section';
+import { StatusPill } from '@/components/StatusPill';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { getLease, getPayoutDetails, Lease, PayoutDetails } from '@/lib/leases';
@@ -149,213 +159,327 @@ function BillsInner() {
     : [];
 
   return (
-    <>
-      <TopBar />
-      <div className="container">
-        <PageHeader back={`/leases/${id}`} title="Счета" subtitle="Расчётные периоды и оплата" />
-        <LeaseTabs id={id} />
-        {error && <div className="error">{error}</div>}
+    <AppShell>
+      <PageHeader
+        back={`/leases/${id}`}
+        backLabel="Договор"
+        title="Счета"
+        subtitle="Расчётные периоды и оплата"
+      />
+      <LeaseTabs id={id} />
 
-        {lease && (
-          <Section
-            title="Куда платить"
-            action={
-              isLandlord ? (
-                <button className="link" onClick={openPayoutSheet}>
-                  {payout?.filled ? 'Изменить' : 'Заполнить'}
-                </button>
-              ) : undefined
-            }
-          >
-            {payoutRows.length === 0 ? (
-              <div className="empty">
-                {isLandlord
-                  ? 'Реквизиты не заполнены — арендатору некуда переводить оплату.'
-                  : 'Собственник ещё не указал реквизиты для перевода.'}
-              </div>
-            ) : (
-              <div className="card">
-                {payoutRows.map((row) => (
-                  <div
-                    key={row.key}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '4px 0',
-                    }}
-                  >
-                    <span className="muted">{row.label}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <span style={{ overflowWrap: 'anywhere' }}>{row.value}</span>
-                      <button className="link" onClick={() => copy(row.value, row.key)}>
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
+        >
+          <AlertTriangle aria-hidden className="size-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {/* Реквизиты — слева отдельной колонкой: на десктопе арендатор
+          держит их перед глазами, пока разбирается со счётом. */}
+      <div className="lg:grid lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start lg:gap-10">
+        <div>
+          {lease && (
+            <Section
+              title="Куда платить"
+              className="mt-0"
+              action={
+                isLandlord ? (
+                  <Button variant="link" size="sm" onClick={openPayoutSheet}>
+                    {payout?.filled ? 'Изменить' : 'Заполнить'}
+                  </Button>
+                ) : undefined
+              }
+            >
+              {payoutRows.length === 0 ? (
+                <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                  {isLandlord
+                    ? 'Реквизиты не заполнены — арендатору некуда переводить оплату.'
+                    : 'Собственник ещё не указал реквизиты для перевода.'}
+                </p>
+              ) : (
+                <Card>
+                  {payoutRows.map((row) => (
+                    <div
+                      key={row.key}
+                      className="flex items-center justify-between gap-3 border-t border-line px-5 py-3 first:border-t-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-label text-content-muted">
+                          {row.label}
+                        </p>
+                        <p className="mt-0.5 font-semibold text-content [overflow-wrap:anywhere]">
+                          {row.value}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => copy(row.value, row.key)}
+                        aria-label={`Копировать: ${row.label}`}
+                      >
+                        <Copy aria-hidden />
                         {copied === row.key ? 'Скопировано' : 'Копировать'}
-                      </button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Section>
-        )}
-
-        {!lease ? (
-          <p className="muted">Загрузка…</p>
-        ) : bills.length === 0 ? (
-          <EmptyState icon="wallet" title="Счетов пока нет" text="Текущий счёт создаётся автоматически, когда договор активен." />
-        ) : (
-          bills.map(({ bill, total, accruedPenalty, totalDue, overdue }) => (
-            <div className="card" key={bill.id}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <strong>{bill.periodStart.slice(0, 10)} — {bill.periodEnd.slice(0, 10)}</strong>
-                {bill.stage === 'draft' ? (
-                  <span className="pill">черновик</span>
-                ) : (
-                  <span className={`pill ${bill.paymentStatus === 'paid' ? 'ok' : overdue ? 'warn' : ''}`}>
-                    {bill.paymentStatus && PAYMENT_STATUS_LABEL[bill.paymentStatus]}
-                    {overdue ? ' · просрочен' : ''}
-                  </span>
-                )}
-              </div>
-
-              <div className="money" style={{ margin: '12px 0 6px' }}>
-                <span className={`amount ${bill.paymentStatus !== 'paid' && bill.stage === 'final' ? 'due' : ''}`}>
-                  {formatMoney(totalDue)} ₽
-                </span>
-                <span className="muted">к оплате</span>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border-default)', paddingTop: 10, marginTop: 6 }}>
-                {bill.lineItems.map((li) => (
-                  <div key={li.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', padding: '3px 0' }}>
-                    <span className="muted">{li.title}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(li.amount)} ₽</span>
-                  </div>
-                ))}
-                {accruedPenalty > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', padding: '3px 0', color: 'var(--terracotta-500)' }}>
-                    <span>Пеня{bill.penaltyWaived ? ' (прощена)' : ''}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMoney(accruedPenalty)} ₽</span>
-                  </div>
-                )}
-              </div>
-
-              {bill.paymentProof && (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 10,
-                    marginTop: 10,
-                    paddingTop: 10,
-                    borderTop: '1px solid var(--border-default)',
-                  }}
-                >
-                  <span className="muted">
-                    Чек от арендатора · {bill.paymentProof.uploadedAt.slice(0, 10)}
-                  </span>
-                  <button className="link" onClick={() => openProof(bill.id)}>
-                    Открыть
-                  </button>
-                </div>
+                      </Button>
+                    </div>
+                  ))}
+                </Card>
               )}
+            </Section>
+          )}
+        </div>
 
-              <div className="table-actions" style={{ marginTop: 14 }}>
-                {bill.stage === 'draft' && (
-                  <>
-                    <button disabled={busy} onClick={() => run(() => finalizeBill(bill.id))}>Сформировать счёт</button>
-                    {isLandlord && (
-                      <button className="secondary" disabled={busy} onClick={() => setSheetBill(bill.id)}>+ Статья</button>
+        <div className="mt-8 lg:mt-0">
+          {!lease ? (
+            <p className="text-content-muted">Загрузка…</p>
+          ) : bills.length === 0 ? (
+            <EmptyState
+              icon={Wallet}
+              title="Счетов пока нет"
+              text="Текущий счёт создаётся автоматически, когда договор активен."
+            />
+          ) : (
+            <div className="divide-y divide-line border-t border-line">
+              {bills.map(({ bill, total, accruedPenalty, totalDue, overdue }) => {
+                const unpaid = bill.stage === 'final' && bill.paymentStatus !== 'paid';
+                return (
+                  <article key={bill.id} className="py-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h3 className="text-lg font-bold text-content [font-variant-numeric:tabular-nums]">
+                        {bill.periodStart.slice(0, 10)} — {bill.periodEnd.slice(0, 10)}
+                      </h3>
+                      {bill.stage === 'draft' ? (
+                        <StatusPill tone="neutral">черновик</StatusPill>
+                      ) : (
+                        <StatusPill
+                          tone={
+                            bill.paymentStatus === 'paid'
+                              ? 'success'
+                              : overdue
+                                ? 'danger'
+                                : 'warn'
+                          }
+                        >
+                          {bill.paymentStatus && PAYMENT_STATUS_LABEL[bill.paymentStatus]}
+                          {overdue ? ' · просрочен' : ''}
+                        </StatusPill>
+                      )}
+                    </div>
+
+                    {/* Сумма к оплате — самое заметное на экране; просрочка
+                        добавляет к размеру ещё и функциональный цвет. */}
+                    <p className="mt-3 flex items-baseline gap-2">
+                      <span
+                        className={`text-4xl font-bold [font-variant-numeric:tabular-nums] ${
+                          overdue && unpaid
+                            ? 'text-danger'
+                            : unpaid
+                              ? 'text-terracotta-500'
+                              : 'text-content'
+                        }`}
+                      >
+                        {formatMoney(totalDue)} ₽
+                      </span>
+                      <span className="text-sm text-content-muted">к оплате</span>
+                    </p>
+
+                    <dl className="mt-4 border-t border-line pt-3">
+                      {bill.lineItems.map((li) => (
+                        <div key={li.id} className="flex justify-between gap-4 py-1 text-sm">
+                          <dt className="text-content-muted">{li.title}</dt>
+                          <dd className="[font-variant-numeric:tabular-nums]">
+                            {formatMoney(li.amount)} ₽
+                          </dd>
+                        </div>
+                      ))}
+                      {accruedPenalty > 0 && (
+                        <div className="flex justify-between gap-4 py-1 text-sm text-terracotta-500">
+                          <dt>Пеня{bill.penaltyWaived ? ' (прощена)' : ''}</dt>
+                          <dd className="[font-variant-numeric:tabular-nums]">
+                            {formatMoney(accruedPenalty)} ₽
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+
+                    {bill.paymentProof && (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
+                        <span className="text-sm text-content-muted">
+                          Чек от арендатора · {bill.paymentProof.uploadedAt.slice(0, 10)}
+                        </span>
+                        <Button variant="link" size="sm" onClick={() => openProof(bill.id)}>
+                          Открыть
+                        </Button>
+                      </div>
                     )}
-                  </>
-                )}
-                {bill.stage === 'final' && bill.paymentStatus !== 'paid' && isTenant && (
-                  <button disabled={busy} onClick={() => setClaimBill(bill.id)}>
-                    {bill.paymentProof ? 'Заменить чек' : 'Я оплатил'}
-                  </button>
-                )}
-                {bill.stage === 'final' && bill.paymentStatus !== 'paid' && isLandlord && (
-                  <>
-                    <button disabled={busy} onClick={() => run(() => confirmPaid(bill.id))}>Оплата получена</button>
-                    {accruedPenalty > 0 && !bill.penaltyWaived && (
-                      <button className="secondary" disabled={busy} onClick={() => run(() => waivePenalty(bill.id))}>Простить пеню</button>
-                    )}
-                  </>
-                )}
-              </div>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      {bill.stage === 'draft' && (
+                        <>
+                          <Button
+                            disabled={busy}
+                            onClick={() => run(() => finalizeBill(bill.id))}
+                          >
+                            Сформировать счёт
+                          </Button>
+                          {isLandlord && (
+                            <Button
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() => setSheetBill(bill.id)}
+                            >
+                              Добавить статью
+                            </Button>
+                          )}
+                        </>
+                      )}
+                      {unpaid && isTenant && (
+                        <Button disabled={busy} onClick={() => setClaimBill(bill.id)}>
+                          {bill.paymentProof ? 'Заменить чек' : 'Я оплатил'}
+                        </Button>
+                      )}
+                      {unpaid && isLandlord && (
+                        <>
+                          <Button
+                            disabled={busy}
+                            onClick={() => run(() => confirmPaid(bill.id))}
+                          >
+                            Оплата получена
+                          </Button>
+                          {accruedPenalty > 0 && !bill.penaltyWaived && (
+                            <Button
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() => run(() => waivePenalty(bill.id))}
+                            >
+                              Простить пеню
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
-          ))
-        )}
+          )}
+        </div>
       </div>
 
-      {sheetBill && (
-        <Sheet title="Добавить статью" onClose={() => setSheetBill(null)}>
-          <form onSubmit={onAddLine}>
-            <div className="field">
-              <label>Название</label>
-              <input value={lineTitle} onChange={(e) => setLineTitle(e.target.value)} placeholder="Например, вывоз мусора" required />
+      <Dialog open={sheetBill !== null} onOpenChange={(open) => !open && setSheetBill(null)}>
+        <DialogContent title="Добавить статью">
+          <form onSubmit={onAddLine} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="line-title">Название</Label>
+              <Input
+                id="line-title"
+                value={lineTitle}
+                onChange={(e) => setLineTitle(e.target.value)}
+                placeholder="Например, вывоз мусора"
+                required
+              />
             </div>
-            <div className="field">
-              <label>Сумма, ₽</label>
-              <input type="number" value={lineAmount} onChange={(e) => setLineAmount(e.target.value)} required />
+            <div className="space-y-1.5">
+              <Label htmlFor="line-amount">Сумма, ₽</Label>
+              <Input
+                id="line-amount"
+                type="number"
+                value={lineAmount}
+                onChange={(e) => setLineAmount(e.target.value)}
+                required
+              />
             </div>
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={() => setSheetBill(null)}>Отмена</button>
-              <button type="submit" disabled={busy}>Добавить</button>
-            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setSheetBill(null)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                Добавить
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {claimBill && (
-        <Sheet title="Подтверждение оплаты" onClose={() => setClaimBill(null)}>
-          <form onSubmit={onClaim}>
-            <div className="hint">
-              Приложите чек или скриншот перевода — собственник увидит его,
-              когда будет подтверждать оплату. Пеня останавливается только
-              после его подтверждения.
+      <Dialog open={claimBill !== null} onOpenChange={(open) => !open && setClaimBill(null)}>
+        <DialogContent title="Подтверждение оплаты">
+          <form onSubmit={onClaim} className="space-y-4">
+            <p className="max-w-prose text-sm text-content-muted">
+              Приложите чек или скриншот перевода — собственник увидит его, когда будет
+              подтверждать оплату. Пеня останавливается только после его подтверждения.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="proof">Чек (JPEG, PNG или PDF)</Label>
+              <input
+                id="proof"
+                ref={proofRef}
+                type="file"
+                accept="image/jpeg,image/png,application/pdf"
+                required
+                className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
+              />
             </div>
-            <div className="field">
-              <label>Чек (JPEG, PNG или PDF)</label>
-              <input ref={proofRef} type="file" accept="image/jpeg,image/png,application/pdf" required />
-            </div>
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={() => setClaimBill(null)}>Отмена</button>
-              <button type="submit" disabled={busy}>{busy ? 'Отправка…' : 'Я оплатил'}</button>
-            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setClaimBill(null)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Отправка…' : 'Я оплатил'}
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
+        </DialogContent>
+      </Dialog>
 
-      {payoutSheet && (
-        <Sheet title="Реквизиты для перевода" onClose={() => setPayoutSheet(false)}>
-          <form onSubmit={onSavePayout}>
-            <div className="hint">
-              Их увидит арендатор на этом экране и сможет скопировать в один
-              клик. Реквизиты не попадают в текст договора.
+      <Dialog open={payoutSheet} onOpenChange={setPayoutSheet}>
+        <DialogContent title="Реквизиты для перевода">
+          <form onSubmit={onSavePayout} className="space-y-4">
+            <p className="max-w-prose text-sm text-content-muted">
+              Их увидит арендатор на этом экране и сможет скопировать в один клик.
+              Реквизиты не попадают в текст договора.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="p-phone">Телефон для СБП</Label>
+              <Input
+                id="p-phone"
+                value={pPhone}
+                onChange={(e) => setPPhone(e.target.value)}
+                placeholder="+7 900 000-00-00"
+              />
             </div>
-            <div className="field">
-              <label>Телефон для СБП</label>
-              <input value={pPhone} onChange={(e) => setPPhone(e.target.value)} placeholder="+7 900 000-00-00" />
+            <div className="space-y-1.5">
+              <Label htmlFor="p-bank">Банк-получатель</Label>
+              <Input
+                id="p-bank"
+                value={pBank}
+                onChange={(e) => setPBank(e.target.value)}
+                placeholder="Т-Банк"
+              />
             </div>
-            <div className="field">
-              <label>Банк-получатель</label>
-              <input value={pBank} onChange={(e) => setPBank(e.target.value)} placeholder="Т-Банк" />
+            <div className="space-y-1.5">
+              <Label htmlFor="p-note">Комментарий (необязательно)</Label>
+              <Input
+                id="p-note"
+                value={pNote}
+                onChange={(e) => setPNote(e.target.value)}
+                placeholder="Другой способ перевода"
+              />
             </div>
-            <div className="field">
-              <label>Комментарий (необязательно)</label>
-              <input value={pNote} onChange={(e) => setPNote(e.target.value)} placeholder="Другой способ перевода" />
-            </div>
-            <div className="sheet-actions">
-              <button type="button" className="secondary" onClick={() => setPayoutSheet(false)}>Отмена</button>
-              <button type="submit" disabled={busy}>Сохранить</button>
-            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setPayoutSheet(false)}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                Сохранить
+              </Button>
+            </DialogFooter>
           </form>
-        </Sheet>
-      )}
-    </>
+        </DialogContent>
+      </Dialog>
+    </AppShell>
   );
 }
 
