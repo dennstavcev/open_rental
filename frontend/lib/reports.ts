@@ -1,6 +1,32 @@
 import { apiFetch } from './api';
 
+export type PortfolioStatus = 'rented' | 'pending' | 'vacant';
+
+export interface PortfolioEntry {
+  propertyId: string;
+  address: string;
+  city: string | null;
+  status: PortfolioStatus;
+  tenantEmail: string | null;
+  monthlyRent: number | null;
+  incomeTotal: number;
+  outstandingTotal: number;
+  openRequests: number;
+  inProgressRequests: number;
+  pendingServicesAmount: number;
+}
+
+export interface PortfolioTotals {
+  properties: number;
+  rented: number;
+  pending: number;
+  vacant: number;
+  activeRequests: number;
+  pendingServicesAmount: number;
+}
+
 export interface LandlordSummary {
+  portfolio: { totals: PortfolioTotals; entries: PortfolioEntry[] };
   income: { total: number; byMonth: Array<{ month: string; amount: number }> };
   outstanding: {
     totalDue: number;
