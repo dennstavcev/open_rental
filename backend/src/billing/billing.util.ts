@@ -1,4 +1,8 @@
-import { BillPaymentStatus, BillStage } from '@prisma/client';
+import {
+  BillPaymentStatus,
+  BillStage,
+  SettlementPayer,
+} from '@prisma/client';
 
 // Денежные вычисления в домене — на number с округлением до 2 знаков
 // (достаточно для MVP, см. docs/CHANGELOG.md).
@@ -8,6 +12,22 @@ export function round2(value: number): number {
 
 export function toNumber(value: unknown): number {
   return typeof value === 'number' ? value : Number(value);
+}
+
+// Доля арендатора по плательщику (ADR-0025): это единое правило для
+// выставления услуги и портфельного отчёта, чтобы их знаки не разошлись.
+export function tenantShareForPayer(
+  price: unknown,
+  payer: SettlementPayer,
+): number {
+  const value = toNumber(price);
+  if (payer === SettlementPayer.owner) {
+    return -round2(value);
+  }
+  if (payer === SettlementPayer.split) {
+    return round2(value / 2);
+  }
+  return round2(value);
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -132,6 +152,9 @@ export interface PenaltyInput {
 // payment_claimed, останавливается в paid; прощение замораживает сумму
 // (ADR-0012, docs/MVP_SCOPE.md «Пени»).
 export function computeAccruedPenalty(input: PenaltyInput): number {
+  if (input.total <= 0) {
+    return 0;
+  }
   if (input.penaltyWaived) {
     return round2(toNumber(input.penaltyWaivedAmount ?? 0));
   }
@@ -160,8 +183,12 @@ export function isOverdue(
     paymentStatus: BillPaymentStatus | null;
     dueDate: Date;
   },
+  total: number,
   now: Date,
 ): boolean {
+  if (total <= 0) {
+    return false;
+  }
   return (
     bill.stage === BillStage.final &&
     (bill.paymentStatus === BillPaymentStatus.pending ||

@@ -196,6 +196,11 @@ describe('billing.util', () => {
         computeAccruedPenalty({ ...base, stage: BillStage.draft, now }),
       ).toBe(0);
     });
+
+    it.each([0, -100])('при итоге %s пеня равна 0', (total) => {
+      const now = new Date(Date.UTC(2026, 9, 30, 12, 0, 0));
+      expect(computeAccruedPenalty({ ...base, total, now })).toBe(0);
+    });
   });
 
   describe('isOverdue', () => {
@@ -204,6 +209,7 @@ describe('billing.util', () => {
       expect(
         isOverdue(
           { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending, dueDate: due },
+          50000,
           new Date(Date.UTC(2026, 9, 21, 12, 0, 0)),
         ),
       ).toBe(true);
@@ -212,6 +218,17 @@ describe('billing.util', () => {
       expect(
         isOverdue(
           { stage: BillStage.final, paymentStatus: BillPaymentStatus.paid, dueDate: due },
+          50000,
+          new Date(Date.UTC(2026, 9, 21, 12, 0, 0)),
+        ),
+      ).toBe(false);
+    });
+
+    it.each([0, -0.01])('при итоге %s просрочки нет', (total) => {
+      expect(
+        isOverdue(
+          { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending, dueDate: due },
+          total,
           new Date(Date.UTC(2026, 9, 21, 12, 0, 0)),
         ),
       ).toBe(false);

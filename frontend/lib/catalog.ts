@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import type { SettlementPayer } from './maintenance';
 
 export type ServiceType = 'monthly' | 'one_time';
 export type MeterType = 'electricity' | 'water' | 'gas' | 'heating';
@@ -14,6 +15,9 @@ export interface Service {
   price: string;
   serviceType: ServiceType;
   description: string | null;
+  payer: SettlementPayer;
+  sourceRequestId: string | null;
+  billedAt: string | null;
 }
 
 export interface Meter {

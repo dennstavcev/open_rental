@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ServiceType } from '@prisma/client';
 import { ServicesService } from './services.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -71,9 +71,34 @@ describe('ServicesService', () => {
 
   it('remove своей услуги проходит', async () => {
     properties.findOneForOwner.mockResolvedValue({ id: 'p1' });
-    prisma.service.findFirst.mockResolvedValue({ id: 's1', propertyId: 'p1' });
+    prisma.service.findFirst.mockResolvedValue({
+      id: 's1',
+      propertyId: 'p1',
+      sourceRequestId: null,
+    });
     prisma.service.delete.mockResolvedValue({});
     await service.remove('u1', 'p1', 's1');
     expect(prisma.service.delete).toHaveBeenCalledWith({ where: { id: 's1' } });
   });
+
+  it.each(['update', 'remove'] as const)(
+    '%s услуги из согласованной заявки → Conflict',
+    async (operation) => {
+      properties.findOneForOwner.mockResolvedValue({ id: 'p1' });
+      prisma.service.findFirst.mockResolvedValue({
+        id: 's1',
+        propertyId: 'p1',
+        sourceRequestId: 'req1',
+      });
+
+      const action =
+        operation === 'update'
+          ? service.update('u1', 'p1', 's1', { price: 10 })
+          : service.remove('u1', 'p1', 's1');
+
+      await expect(action).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.service.update).not.toHaveBeenCalled();
+      expect(prisma.service.delete).not.toHaveBeenCalled();
+    },
+  );
 });

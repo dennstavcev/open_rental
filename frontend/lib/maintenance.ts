@@ -13,6 +13,7 @@ export interface MaintenanceRequest {
   confirmedByTenant: boolean;
   confirmedByLandlord: boolean;
   settlementAppliedAt: string | null;
+  service: { id: string; billedAt: string | null } | null;
 }
 
 export const STATUS_LABEL: Record<MaintenanceStatus, string> = {

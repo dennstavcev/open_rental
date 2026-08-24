@@ -245,6 +245,7 @@ function BillsInner() {
             <div className="divide-y divide-line border-t border-line">
               {bills.map(({ bill, total, accruedPenalty, totalDue, overdue }) => {
                 const unpaid = bill.stage === 'final' && bill.paymentStatus !== 'paid';
+                const payable = unpaid && totalDue > 0;
                 return (
                   <article key={bill.id} className="py-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -281,16 +282,26 @@ function BillsInner() {
                               : 'text-content'
                         }`}
                       >
-                        {formatMoney(totalDue)} ₽
+                        {totalDue === 0
+                          ? `К оплате: ${formatMoney(totalDue)} ₽`
+                          : `${formatMoney(totalDue)} ₽`}
                       </span>
-                      <span className="text-sm text-content-muted">к оплате</span>
+                      {totalDue !== 0 && (
+                        <span className="text-sm text-content-muted">к оплате</span>
+                      )}
                     </p>
 
                     <dl className="mt-4 border-t border-line pt-3">
                       {bill.lineItems.map((li) => (
                         <div key={li.id} className="flex justify-between gap-4 py-1 text-sm">
                           <dt className="text-content-muted">{li.title}</dt>
-                          <dd className="[font-variant-numeric:tabular-nums]">
+                          <dd
+                            className={`[font-variant-numeric:tabular-nums] ${
+                              Number(li.amount) < 0
+                                ? 'font-semibold text-terracotta-500'
+                                : ''
+                            }`}
+                          >
                             {formatMoney(li.amount)} ₽
                           </dd>
                         </div>
@@ -336,12 +347,12 @@ function BillsInner() {
                           )}
                         </>
                       )}
-                      {unpaid && isTenant && (
+                      {payable && isTenant && (
                         <Button disabled={busy} onClick={() => setClaimBill(bill.id)}>
                           {bill.paymentProof ? 'Заменить чек' : 'Я оплатил'}
                         </Button>
                       )}
-                      {unpaid && isLandlord && (
+                      {payable && isLandlord && (
                         <>
                           <Button
                             disabled={busy}

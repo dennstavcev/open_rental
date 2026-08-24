@@ -213,7 +213,7 @@ enum SettlementPayer {
 
 // Заявка на обслуживание (docs/ARCHITECTURE.md, MaintenanceRequest).
 // Обычную заявку создаёт только tenant; landlord ведёт статус. Сумма
-// урегулирования — по двустороннему подтверждению → строка в счёт.
+// урегулирования — по двустороннему подтверждению → разовая услуга (ADR-0025).
 model MaintenanceRequest {
   id              String            @id @default(uuid())
   lease           Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
@@ -229,6 +229,7 @@ model MaintenanceRequest {
   confirmedByTenant   Boolean          @default(false)
   confirmedByLandlord Boolean          @default(false)
   settlementAppliedAt DateTime?
+  service             Service?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -469,15 +470,22 @@ enum ServiceType {
 // Услуга каталога, привязана к Property, не к Lease — переживает смену
 // арендатора (docs/MVP_SCOPE.md §4, docs/ARCHITECTURE.md, Service).
 model Service {
-  id          String      @id @default(uuid())
-  property    Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  propertyId  String
-  name        String
-  price       Decimal     @db.Decimal(12, 2)
-  serviceType ServiceType
-  description String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id              String              @id @default(uuid())
+  property        Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  propertyId      String
+  name            String
+  price           Decimal             @db.Decimal(12, 2)
+  serviceType     ServiceType
+  description     String?
+  // Кто платит за разовую услугу (ADR-0025). Для monthly всегда tenant.
+  payer           SettlementPayer     @default(tenant)
+  // Заявка, из которой выросла услуга. Ручная услуга с заявкой не связана.
+  sourceRequest   MaintenanceRequest? @relation(fields: [sourceRequestId], references: [id], onDelete: SetNull)
+  sourceRequestId String?             @unique
+  // Разовая услуга выставляется ровно один раз; monthly поле не использует.
+  billedAt        DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   @@index([propertyId])
   @@map("services")

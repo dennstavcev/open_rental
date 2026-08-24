@@ -17,9 +17,14 @@ import {
   BillStage,
   Lease,
   LeaseStatus,
+  MaintenanceRequest,
+  MaintenanceStatus,
   Payment,
   PaymentProof,
   Prisma,
+  Service,
+  ServiceType,
+  SettlementPayer,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
@@ -43,6 +48,7 @@ import {
   nextPeriod,
   Period,
   round2,
+  tenantShareForPayer,
   toNumber,
 } from './billing.util';
 
@@ -51,6 +57,8 @@ type BillWithItems = Bill & {
   payment: Payment | null;
   paymentProof: PaymentProof | null;
 };
+
+type ServiceBillingResult = { billed: boolean; amount: number };
 
 // Чек об оплате (ADR-0019): JPEG/PNG/PDF, как у сканов договора.
 const ALLOWED_PROOF_MIME: Record<string, string> = {
@@ -257,6 +265,9 @@ export class BillingService {
       );
     }
     const bill = await this.getBillAsTenant(userId, billId);
+    if (this.toView(bill, new Date()).totalDue <= 0) {
+      throw new ConflictException('По этому счёту нечего оплачивать');
+    }
     if (
       bill.stage !== BillStage.final ||
       (bill.paymentStatus !== BillPaymentStatus.pending &&
@@ -411,29 +422,71 @@ export class BillingService {
     });
   }
 
-  // Добавляет строку урегулирования по заявке в текущий черновик счёта.
-  // Вызывается модулем Maintenance по двустороннему подтверждению суммы.
-  async addSettlementLine(
-    lease: Lease,
-    data: { title: string; amount: number; sourceRefId: string },
-  ): Promise<void> {
+  // Публичный вход для разовой услуги: счёт гарантированно существует до
+  // транзакции, а право на выставление захватывается уже внутри неё.
+  async billOneTimeService(lease: Lease, serviceId: string): Promise<void> {
+    const service = await this.prisma.service.findUnique({
+      where: { id: serviceId },
+      include: { sourceRequest: { select: { category: true } } },
+    });
+    if (!service) {
+      throw new NotFoundException('Услуга не найдена');
+    }
+    if (service.serviceType !== ServiceType.one_time) {
+      throw new ConflictException('Выставить отдельно можно только разовую услугу');
+    }
     await this.ensureCurrentDraft(lease);
     const draft = await this.prisma.bill.findFirst({
       where: { leaseId: lease.id, stage: BillStage.draft },
+      orderBy: { periodStart: 'asc' },
     });
     if (!draft) {
       throw new NotFoundException('Черновик счёта не найден');
     }
-    await this.prisma.billLineItem.create({
-      data: {
-        billId: draft.id,
-        kind: BillItemKind.maintenance,
-        source: BillItemSource.maintenance,
-        amount: data.amount,
-        title: data.title,
-        sourceRefId: data.sourceRefId,
-      },
+    const result = await this.prisma.$transaction((tx) =>
+      this.billServiceIntoBill(tx, draft.id, service),
+    );
+    if (result.billed && result.amount !== 0) {
+      await this.notifyServiceBilled(
+        lease,
+        service.sourceRequest?.category ?? service.name,
+        service.payer,
+        result.amount,
+      );
+    }
+  }
+
+  // Внутренний межмодульный вход: Maintenance передаёт обновление статуса
+  // сюда, чтобы оно разделяло транзакцию с захватом услуги и строкой счёта.
+  async resolveRequestWithService(
+    lease: Lease,
+    request: MaintenanceRequest,
+    service: Service,
+  ): Promise<MaintenanceRequest> {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.maintenanceRequest.update({
+        where: { id: request.id },
+        data: { status: MaintenanceStatus.resolved },
+      });
+      const draft = await tx.bill.findFirst({
+        where: { leaseId: lease.id, stage: BillStage.draft },
+        orderBy: { periodStart: 'asc' },
+      });
+      if (!draft) {
+        throw new NotFoundException('Черновик счёта не найден');
+      }
+      const billed = await this.billServiceIntoBill(tx, draft.id, service);
+      return { updated, billed };
     });
+    if (result.billed.billed && result.billed.amount !== 0) {
+      await this.notifyServiceBilled(
+        lease,
+        request.category,
+        service.payer,
+        result.billed.amount,
+      );
+    }
+    return result.updated;
   }
 
   // ---- внутреннее ----
@@ -441,23 +494,34 @@ export class BillingService {
   async ensureCurrentDraft(lease: Lease): Promise<void> {
     const existingDraft = await this.prisma.bill.findFirst({
       where: { leaseId: lease.id, stage: BillStage.draft },
+      orderBy: { periodStart: 'asc' },
     });
     if (existingDraft) {
       return;
     }
     const period = computePeriod(new Date(), lease.paymentDay);
-    await this.createDraftForPeriod(this.prisma, lease, period);
+    await this.prisma.$transaction((tx) =>
+      this.createDraftForPeriod(tx, lease, period),
+    );
   }
 
   private async createDraftForPeriod(
-    tx: Prisma.TransactionClient | PrismaService,
+    tx: Prisma.TransactionClient,
     lease: Lease,
     period: Period,
-  ): Promise<void> {
+  ): Promise<Bill> {
     const monthlyServices = await tx.service.findMany({
       where: { propertyId: lease.propertyId, serviceType: 'monthly' },
     });
-    await tx.bill.create({
+    const oneTimeServices = await tx.service.findMany({
+      where: {
+        propertyId: lease.propertyId,
+        serviceType: ServiceType.one_time,
+        billedAt: null,
+        sourceRequestId: null,
+      },
+    });
+    const bill = await tx.bill.create({
       data: {
         leaseId: lease.id,
         stage: BillStage.draft,
@@ -486,6 +550,75 @@ export class BillingService {
         },
       },
     });
+    for (const service of oneTimeServices) {
+      await this.billServiceIntoBill(tx, bill.id, service);
+    }
+    return bill;
+  }
+
+  // Сначала захватываем nullable-отметку, затем перечитываем цену внутри той
+  // же транзакции: ручную услугу могли изменить после внешнего чтения.
+  private async billServiceIntoBill(
+    tx: Prisma.TransactionClient,
+    billId: string,
+    service: Pick<Service, 'id' | 'name' | 'price' | 'payer'>,
+  ): Promise<ServiceBillingResult> {
+    const claimed = await tx.service.updateMany({
+      where: { id: service.id, billedAt: null },
+      data: { billedAt: new Date() },
+    });
+    if (claimed.count !== 1) {
+      return { billed: false, amount: 0 };
+    }
+    const current = await tx.service.findUnique({ where: { id: service.id } });
+    if (!current) {
+      throw new NotFoundException('Услуга не найдена');
+    }
+
+    const amount = tenantShareForPayer(current.price, current.payer);
+    if (amount === 0) {
+      return { billed: true, amount };
+    }
+
+    const payerNote =
+      current.payer === SettlementPayer.owner
+        ? ' (вычет за счёт собственника)'
+        : current.payer === SettlementPayer.split
+          ? ' (доля арендатора)'
+          : '';
+    await tx.billLineItem.create({
+      data: {
+        billId,
+        kind: BillItemKind.service,
+        source: BillItemSource.service,
+        amount,
+        title: `${current.name}${payerNote}`,
+        sourceRefId: current.id,
+      },
+    });
+    return { billed: true, amount };
+  }
+
+  private async notifyServiceBilled(
+    lease: Lease,
+    category: string,
+    payer: SettlementPayer,
+    amount: number,
+  ): Promise<void> {
+    const value = round2(Math.abs(amount));
+    const isDeduction = payer === SettlementPayer.owner;
+    if (lease.tenantId) {
+      await this.notifyBestEffort(lease.tenantId, {
+        type: isDeduction ? 'service_deduction_added' : 'service_added',
+        title: isDeduction ? 'В счёт добавлен вычет' : 'В счёт добавлена услуга',
+        body: `По заявке «${category}» ${isDeduction ? 'из текущего счёта вычтено' : 'в текущий счёт добавлено'} ${value} ₽.`,
+      });
+    }
+    await this.notifyBestEffort(lease.landlordId, {
+      type: 'request_service_billed',
+      title: 'Услуга по заявке выставлена',
+      body: `По заявке «${category}» в счёт ${isDeduction ? 'вычтено' : 'добавлено'} ${value} ₽.`,
+    });
   }
 
   private toView(bill: BillWithItems, now: Date): BillView {
@@ -507,7 +640,7 @@ export class BillingService {
       total,
       accruedPenalty,
       totalDue: round2(total + penaltyDue),
-      overdue: isOverdue(bill, now),
+      overdue: isOverdue(bill, total, now),
     };
   }
 

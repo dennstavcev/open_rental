@@ -102,23 +102,32 @@ function RequestCard({
         </div>
 
         {isLandlord ? (
-          <Select
-            aria-label="Статус заявки"
-            className="h-9 w-auto min-w-40 text-sm"
-            value={req.status}
-            disabled={busy}
-            onChange={(e) => run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))}
-          >
-            <option value="open">Открыта</option>
-            <option value="in_progress">В работе</option>
-            <option value="resolved">Решена</option>
-          </Select>
+          <div className="max-w-xs text-right">
+            <Select
+              aria-label="Статус заявки"
+              className="h-9 w-auto min-w-40 text-sm"
+              value={req.status}
+              disabled={busy}
+              onChange={(e) =>
+                run(() => updateStatus(req.id, e.target.value as MaintenanceStatus))
+              }
+            >
+              <option value="open">Открыта</option>
+              <option value="in_progress">В работе</option>
+              <option value="resolved">Решена</option>
+            </Select>
+            {req.service?.billedAt === null && (
+              <p className="mt-1 text-xs text-content-muted">
+                После закрытия заявки согласованная сумма уйдёт в текущий счёт.
+              </p>
+            )}
+          </div>
         ) : (
           <StatusPill tone={STATUS_TONE[req.status]}>{STATUS_LABEL[req.status]}</StatusPill>
         )}
       </div>
 
-      {req.settlementAmount && (
+      {req.settlementAmount !== null && (
         <div className="mt-4 rounded-md bg-sand-200/60 px-4 py-3">
           <p className="flex flex-wrap items-baseline gap-x-2 text-content-secondary">
             Урегулирование:
@@ -127,10 +136,24 @@ function RequestCard({
             </span>
             <span>· {req.settlementPayer && PAYER_LABEL[req.settlementPayer]}</span>
           </p>
-          {req.settlementAppliedAt ? (
+          {req.service ? (
+            <div className="mt-2">
+              {req.service.billedAt === null ? (
+                <StatusPill tone="warn">
+                  Услуга создана — попадёт в счёт после закрытия заявки
+                </StatusPill>
+              ) : (
+                <StatusPill tone="success">
+                  {req.settlementPayer === 'owner'
+                    ? 'Вычтено из счёта'
+                    : 'Выставлено в счёт'}
+                </StatusPill>
+              )}
+            </div>
+          ) : req.settlementAppliedAt ? (
             <p className="mt-1 flex items-center gap-1.5 text-sm text-success">
               <Check aria-hidden className="size-4" />
-              согласовано, добавлено в счёт
+              согласовано
             </p>
           ) : (
             <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">

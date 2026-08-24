@@ -9,14 +9,14 @@ import {
 } from '@nestjs/common';
 import {
   Lease,
+  LeaseStatus,
   MaintenanceRequest,
   MaintenanceStatus,
-  SettlementPayer,
+  ServiceType,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { BillingService } from '../billing/billing.service';
-import { round2, toNumber } from '../billing/billing.util';
 import {
   STORAGE_PROVIDER,
   StorageProvider,
@@ -77,10 +77,18 @@ export class MaintenanceService {
     });
   }
 
-  async list(userId: string, leaseId: string): Promise<MaintenanceRequest[]> {
+  async list(
+    userId: string,
+    leaseId: string,
+  ): Promise<
+    Array<
+      MaintenanceRequest & { service: { id: string; billedAt: Date | null } | null }
+    >
+  > {
     await this.leases.getForUser(userId, leaseId);
     return this.prisma.maintenanceRequest.findMany({
       where: { leaseId },
+      include: { service: { select: { id: true, billedAt: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -93,6 +101,21 @@ export class MaintenanceService {
     const { request, lease } = await this.load(userId, id);
     if (lease.landlordId !== userId) {
       throw new ForbiddenException('Статус меняет только собственник');
+    }
+    if (status === MaintenanceStatus.resolved) {
+      const service = await this.prisma.service.findUnique({
+        where: { sourceRequestId: request.id },
+      });
+      if (service && service.billedAt === null) {
+        if (lease.status !== LeaseStatus.active) {
+          throw new ConflictException(
+            'Договор не действует — сумму по заявке нельзя выставить в счёт',
+          );
+        }
+        // Только заявка с неоплаченной услугой требует текущий черновик.
+        await this.billing.ensureCurrentDraft(lease);
+        return this.billing.resolveRequestWithService(lease, request, service);
+      }
     }
     return this.prisma.maintenanceRequest.update({
       where: { id: request.id },
@@ -123,8 +146,8 @@ export class MaintenanceService {
     });
   }
 
-  // Подтверждение суммы второй стороной. По двустороннему подтверждению —
-  // доля арендатора уходит строкой в текущий черновик счёта.
+  // Подтверждение суммы второй стороной. Согласованная заявка создаёт
+  // разовую услугу; начисление ждёт фактического закрытия заявки.
   async confirmSettlement(
     userId: string,
     id: string,
@@ -133,7 +156,7 @@ export class MaintenanceService {
     if (request.settlementAppliedAt) {
       throw new ConflictException('Сумма уже согласована и применена');
     }
-    if (request.settlementAmount === null) {
+    if (request.settlementAmount === null || !request.settlementPayer) {
       throw new ConflictException('Сумма ещё не предложена');
     }
 
@@ -149,37 +172,38 @@ export class MaintenanceService {
       });
     }
 
-    const tenantShare = this.tenantShare(
-      toNumber(request.settlementAmount),
-      request.settlementPayer!,
-    );
-    const updated = await this.prisma.maintenanceRequest.update({
-      where: { id: request.id },
-      data: {
-        confirmedByTenant: true,
-        confirmedByLandlord: true,
-        settlementAppliedAt: new Date(),
-      },
-    });
-    if (tenantShare > 0) {
-      await this.billing.addSettlementLine(lease, {
-        title: `Урегулирование: ${request.category}`,
-        amount: tenantShare,
-        sourceRefId: request.id,
+    return this.prisma.$transaction(async (tx) => {
+      const appliedAt = new Date();
+      const claimed = await tx.maintenanceRequest.updateMany({
+        where: { id: request.id, settlementAppliedAt: null },
+        data: {
+          confirmedByTenant: true,
+          confirmedByLandlord: true,
+          settlementAppliedAt: appliedAt,
+        },
       });
-    }
-    return updated;
-  }
-
-  // Доля арендатора: платит tenant — полностью, split — половина, owner — 0.
-  private tenantShare(amount: number, payer: SettlementPayer): number {
-    if (payer === SettlementPayer.tenant) {
-      return round2(amount);
-    }
-    if (payer === SettlementPayer.split) {
-      return round2(amount / 2);
-    }
-    return 0;
+      if (claimed.count === 1) {
+        await tx.service.create({
+          data: {
+            propertyId: lease.propertyId,
+            name: `Заявка: ${request.category}`,
+            price: request.settlementAmount!,
+            serviceType: ServiceType.one_time,
+            payer: request.settlementPayer!,
+            sourceRequestId: request.id,
+            description: request.description.slice(0, 300),
+            billedAt: null,
+          },
+        });
+      }
+      const updated = await tx.maintenanceRequest.findUnique({
+        where: { id: request.id },
+      });
+      if (!updated) {
+        throw new NotFoundException('Заявка не найдена');
+      }
+      return updated;
+    });
   }
 
   private async load(

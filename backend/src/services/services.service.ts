@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Service } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PropertiesService } from '../properties/properties.service';
@@ -44,7 +48,12 @@ export class ServicesService {
     id: string,
     dto: UpdateServiceDto,
   ): Promise<Service> {
-    await this.ensureOwned(ownerId, propertyId, id);
+    const service = await this.ensureOwned(ownerId, propertyId, id);
+    if (service.sourceRequestId !== null) {
+      throw new ConflictException(
+        'Услуга создана по согласованной заявке и не редактируется',
+      );
+    }
     return this.prisma.service.update({ where: { id }, data: dto });
   }
 
@@ -53,7 +62,12 @@ export class ServicesService {
     propertyId: string,
     id: string,
   ): Promise<void> {
-    await this.ensureOwned(ownerId, propertyId, id);
+    const service = await this.ensureOwned(ownerId, propertyId, id);
+    if (service.sourceRequestId !== null) {
+      throw new ConflictException(
+        'Услуга создана по согласованной заявке и не редактируется',
+      );
+    }
     await this.prisma.service.delete({ where: { id } });
   }
 
@@ -62,7 +76,7 @@ export class ServicesService {
     ownerId: string,
     propertyId: string,
     id: string,
-  ): Promise<void> {
+  ): Promise<Service> {
     await this.properties.findOneForOwner(ownerId, propertyId);
     const service = await this.prisma.service.findFirst({
       where: { id, propertyId },
@@ -70,5 +84,6 @@ export class ServicesService {
     if (!service) {
       throw new NotFoundException('Услуга не найдена');
     }
+    return service;
   }
 }
