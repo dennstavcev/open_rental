@@ -11,7 +11,10 @@ import { Property } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
-import { PropertiesService } from './properties.service';
+import {
+  PropertiesService,
+  PropertyLeaseHistoryEntry,
+} from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 
@@ -31,6 +34,14 @@ export class PropertiesController {
   @Get()
   findAll(@CurrentUser() user: AuthenticatedUser): Promise<Property[]> {
     return this.properties.findAllForOwner(user.id);
+  }
+
+  @Get(':id/lease-history')
+  leaseHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<PropertyLeaseHistoryEntry[]> {
+    return this.properties.getLeaseHistory(user.id, id);
   }
 
   @Get(':id')

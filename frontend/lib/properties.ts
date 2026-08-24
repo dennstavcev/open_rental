@@ -42,6 +42,21 @@ export interface UpdatePropertyInput {
   description?: string;
 }
 
+export interface PropertyLeaseHistoryEntry {
+  leaseId: string;
+  startDate: string;
+  endDate: string;
+  effectiveEndDate: string | null;
+  tenantEmail: string | null;
+  monthlyRent: number;
+  payments: {
+    finalBills: number;
+    paidOnTime: number;
+    paidLate: number;
+    unpaid: number;
+  };
+}
+
 export function listProperties(): Promise<Property[]> {
   return apiFetch<Property[]>('/properties');
 }
@@ -55,6 +70,14 @@ export function createProperty(input: CreatePropertyInput): Promise<Property> {
 
 export function getProperty(id: string): Promise<Property> {
   return apiFetch<Property>(`/properties/${id}`);
+}
+
+export function getPropertyLeaseHistory(
+  id: string,
+): Promise<PropertyLeaseHistoryEntry[]> {
+  return apiFetch<PropertyLeaseHistoryEntry[]>(
+    `/properties/${id}/lease-history`,
+  );
 }
 
 export function updateProperty(

@@ -3,7 +3,14 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, FileText, Gauge, Pencil, Wallet } from 'lucide-react';
+import {
+  AlertTriangle,
+  FileText,
+  Gauge,
+  History,
+  Pencil,
+  Wallet,
+} from 'lucide-react';
 import {
   AddressFields,
   AddressFieldsValue,
@@ -23,7 +30,13 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
-import { getProperty, Property, updateProperty } from '@/lib/properties';
+import {
+  getProperty,
+  getPropertyLeaseHistory,
+  Property,
+  PropertyLeaseHistoryEntry,
+  updateProperty,
+} from '@/lib/properties';
 import { addElevenMonths, createLease, Lease, listLeases } from '@/lib/leases';
 import {
   createMeter,
@@ -59,6 +72,8 @@ function PropertyDetailInner() {
   const [services, setServices] = useState<Service[]>([]);
   const [meters, setMeters] = useState<Meter[]>([]);
   const [leases, setLeases] = useState<Lease[]>([]);
+  const [leaseHistory, setLeaseHistory] =
+    useState<PropertyLeaseHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<SheetKind>(null);
@@ -111,16 +126,18 @@ function PropertyDetailInner() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [p, s, m, l] = await Promise.all([
+      const [p, s, m, l, history] = await Promise.all([
         getProperty(id),
         listServices(id),
         listMeters(id),
         listLeases(),
+        getPropertyLeaseHistory(id),
       ]);
       setProperty(p);
       setServices(s);
       setMeters(m);
       setLeases(l.filter((x) => x.propertyId === id));
+      setLeaseHistory(history);
       if (m.length && !readMeterId) setReadMeterId(m[0].id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
@@ -331,6 +348,8 @@ function PropertyDetailInner() {
     </p>
   );
 
+  const openLeases = leases.filter((lease) => lease.status !== 'terminated');
+
   const sheetError = error && sheet && (
     <p className="flex items-center gap-2 text-sm text-danger">
       <AlertTriangle aria-hidden className="size-4 shrink-0" />
@@ -363,30 +382,73 @@ function PropertyDetailInner() {
           )}
 
           <div className="lg:grid lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-10">
-            <Section
-              title="Договор"
-              className="mt-0"
-              action={leases.length === 0 ? addBtn('lease') : undefined}
-            >
-              {leases.length === 0 ? (
-                <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
-                  По этому объекту ещё нет договора.
-                </p>
-              ) : (
-                <List>
-                  {leases.map((l) => (
-                    <Row
-                      key={l.id}
-                      icon={FileText}
-                      title={`Договор · ${formatMoney(l.rentAmount)} ₽/мес`}
-                      subtitle={`${l.startDate.slice(0, 10)} — ${l.endDate.slice(0, 10)}`}
-                      value={<LeaseStatusPill status={l.status} />}
-                      href={`/leases/${l.id}`}
-                    />
-                  ))}
-                </List>
-              )}
-            </Section>
+            <div>
+              <Section
+                title="Договор"
+                className="mt-0"
+                action={openLeases.length === 0 ? addBtn('lease') : undefined}
+              >
+                {openLeases.length === 0 ? (
+                  <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                    Действующего договора сейчас нет.
+                  </p>
+                ) : (
+                  <List>
+                    {openLeases.map((l) => (
+                      <Row
+                        key={l.id}
+                        icon={FileText}
+                        title={`Договор · ${formatMoney(l.rentAmount)} ₽/мес`}
+                        subtitle={`${formatDate(l.startDate)} — ${formatDate(l.endDate)}`}
+                        value={<LeaseStatusPill status={l.status} />}
+                        href={`/leases/${l.id}`}
+                      />
+                    ))}
+                  </List>
+                )}
+              </Section>
+
+              <Section title="История арендаторов">
+                {leaseHistory.length === 0 ? (
+                  <p className="rounded-md border border-line px-5 py-6 text-center text-content-muted">
+                    Завершённых аренд пока нет.
+                  </p>
+                ) : (
+                  <List>
+                    {leaseHistory.map((entry) => {
+                      const payments = paymentHistoryLabel(entry);
+                      return (
+                        <Row
+                          key={entry.leaseId}
+                          icon={History}
+                          title={entry.tenantEmail ?? 'Арендатор не привязан'}
+                          subtitle={
+                            <span className="space-y-1">
+                              <span className="block">
+                                {formatDate(entry.startDate)} —{' '}
+                                {formatDate(entry.effectiveEndDate ?? entry.endDate)}
+                              </span>
+                              <span className="block">
+                                {formatMoney(entry.monthlyRent)} ₽/мес ·{' '}
+                                {entry.payments.finalBills === 0
+                                  ? 'без финальных счетов'
+                                  : `${entry.payments.paidOnTime} вовремя · ${entry.payments.paidLate} позже · ${entry.payments.unpaid} не оплачено`}
+                              </span>
+                            </span>
+                          }
+                          value={
+                            <StatusPill tone={payments.tone}>
+                              {payments.label}
+                            </StatusPill>
+                          }
+                          href={`/leases/${entry.leaseId}`}
+                        />
+                      );
+                    })}
+                  </List>
+                )}
+              </Section>
+            </div>
 
             <div className="mt-8 lg:mt-0">
               <Section title="Счётчики" className="mt-0" action={addBtn('meter')}>
@@ -917,4 +979,20 @@ export default function PropertyDetailPage() {
       <PropertyDetailInner />
     </RequireAuth>
   );
+}
+
+function formatDate(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function paymentHistoryLabel(entry: PropertyLeaseHistoryEntry): {
+  tone: 'success' | 'warn' | 'danger' | 'neutral';
+  label: string;
+} {
+  const { finalBills, paidLate, unpaid } = entry.payments;
+  if (finalBills === 0) return { tone: 'neutral', label: 'Нет счетов' };
+  if (unpaid > 0) return { tone: 'danger', label: `${unpaid} не оплачено` };
+  if (paidLate > 0) return { tone: 'warn', label: `${paidLate} с задержкой` };
+  return { tone: 'success', label: 'Всё вовремя' };
 }

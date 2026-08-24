@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PropertiesService } from './properties.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BillStage, LeaseStatus, Prisma } from '@prisma/client';
 
 type PrismaMock = {
   property: {
@@ -9,6 +10,7 @@ type PrismaMock = {
     findFirst: jest.Mock;
     update: jest.Mock;
   };
+  lease: { findMany: jest.Mock };
 };
 
 describe('PropertiesService', () => {
@@ -23,6 +25,7 @@ describe('PropertiesService', () => {
         findFirst: jest.fn(),
         update: jest.fn(),
       },
+      lease: { findMany: jest.fn() },
     };
     service = new PropertiesService(prisma as unknown as PrismaService);
   });
@@ -104,6 +107,99 @@ describe('PropertiesService', () => {
     expect(prisma.property.update.mock.calls[0][0].data).not.toHaveProperty(
       'address',
     );
+  });
+
+  describe('история арендаторов', () => {
+    beforeEach(() => {
+      prisma.property.findFirst.mockResolvedValue({ id: 'p1', ownerId: 'u1' });
+    });
+
+    it('проверяет владение до чтения договоров', async () => {
+      prisma.property.findFirst.mockResolvedValue(null);
+
+      await expect(service.getLeaseHistory('u1', 'p-foreign')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.lease.findMany).not.toHaveBeenCalled();
+    });
+
+    it('читает только завершённые договоры этого landlord и финальные счета', async () => {
+      prisma.lease.findMany.mockResolvedValue([]);
+
+      await expect(service.getLeaseHistory('u1', 'p1')).resolves.toEqual([]);
+      expect(prisma.lease.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            propertyId: 'p1',
+            landlordId: 'u1',
+            status: LeaseStatus.terminated,
+          },
+          select: expect.objectContaining({
+            bills: expect.objectContaining({
+              where: { stage: BillStage.final },
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('считает оплаты вовремя, поздние и неоплаченные', async () => {
+      const due = new Date('2026-03-20T12:00:00.000Z');
+      prisma.lease.findMany.mockResolvedValue([
+        {
+          id: 'l1',
+          startDate: new Date('2026-01-01T00:00:00.000Z'),
+          endDate: new Date('2026-06-01T00:00:00.000Z'),
+          effectiveEndDate: new Date('2026-05-10T00:00:00.000Z'),
+          rentAmount: new Prisma.Decimal(45_000),
+          tenant: { email: 'tenant@example.test' },
+          bills: [
+            { dueDate: due, payment: { confirmedAt: due } },
+            {
+              dueDate: due,
+              payment: { confirmedAt: new Date('2026-03-21T12:00:00.000Z') },
+            },
+            { dueDate: due, payment: null },
+          ],
+        },
+      ]);
+
+      await expect(service.getLeaseHistory('u1', 'p1')).resolves.toEqual([
+        {
+          leaseId: 'l1',
+          startDate: new Date('2026-01-01T00:00:00.000Z'),
+          endDate: new Date('2026-06-01T00:00:00.000Z'),
+          effectiveEndDate: new Date('2026-05-10T00:00:00.000Z'),
+          tenantEmail: 'tenant@example.test',
+          monthlyRent: 45_000,
+          payments: { finalBills: 3, paidOnTime: 1, paidLate: 1, unpaid: 1 },
+        },
+      ]);
+    });
+
+    it('сортирует по фактическому окончанию и допускает tenant=null', async () => {
+      const row = (id: string, endDate: string, effectiveEndDate: string | null) => ({
+        id,
+        startDate: new Date('2025-01-01T00:00:00.000Z'),
+        endDate: new Date(endDate),
+        effectiveEndDate: effectiveEndDate ? new Date(effectiveEndDate) : null,
+        rentAmount: new Prisma.Decimal(1),
+        tenant: null,
+        bills: [],
+      });
+      prisma.lease.findMany.mockResolvedValue([
+        row('planned-later', '2026-12-01T00:00:00.000Z', '2026-02-01T00:00:00.000Z'),
+        row('actually-later', '2026-03-01T00:00:00.000Z', null),
+      ]);
+
+      const history = await service.getLeaseHistory('u1', 'p1');
+      expect(history.map((entry) => entry.leaseId)).toEqual([
+        'actually-later',
+        'planned-later',
+      ]);
+      expect(history[0].tenantEmail).toBeNull();
+      expect(history[0].payments.finalBills).toBe(0);
+    });
   });
 
   it.each([

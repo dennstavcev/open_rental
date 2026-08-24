@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Property } from '@prisma/client';
+import { BillStage, LeaseStatus, Property } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
@@ -17,6 +17,23 @@ const ADDRESS_COMPONENTS = [
   'floor',
   'apartment',
 ] as const;
+
+export interface LeasePaymentHistory {
+  finalBills: number;
+  paidOnTime: number;
+  paidLate: number;
+  unpaid: number;
+}
+
+export interface PropertyLeaseHistoryEntry {
+  leaseId: string;
+  startDate: Date;
+  endDate: Date;
+  effectiveEndDate: Date | null;
+  tenantEmail: string | null;
+  monthlyRent: number;
+  payments: LeasePaymentHistory;
+}
 
 @Injectable()
 export class PropertiesService {
@@ -67,6 +84,76 @@ export class PropertiesService {
       throw new NotFoundException('Объект не найден');
     }
     return property;
+  }
+
+  async getLeaseHistory(
+    ownerId: string,
+    propertyId: string,
+  ): Promise<PropertyLeaseHistoryEntry[]> {
+    // Одинаковый 404 для отсутствующего и чужого объекта: история арендаторов
+    // не должна раскрывать даже факт существования чужой карточки.
+    await this.findOneForOwner(ownerId, propertyId);
+
+    const leases = await this.prisma.lease.findMany({
+      where: {
+        propertyId,
+        landlordId: ownerId,
+        status: LeaseStatus.terminated,
+      },
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        effectiveEndDate: true,
+        rentAmount: true,
+        tenant: { select: { email: true } },
+        bills: {
+          where: { stage: BillStage.final },
+          select: {
+            dueDate: true,
+            payment: { select: { confirmedAt: true } },
+          },
+        },
+      },
+    });
+
+    return leases
+      .map((lease) => {
+        const payments = lease.bills.reduce<LeasePaymentHistory>(
+          (summary, bill) => {
+            summary.finalBills += 1;
+            if (!bill.payment) {
+              summary.unpaid += 1;
+            } else if (
+              bill.payment.confirmedAt.getTime() <= bill.dueDate.getTime()
+            ) {
+              summary.paidOnTime += 1;
+            } else {
+              summary.paidLate += 1;
+            }
+            return summary;
+          },
+          { finalBills: 0, paidOnTime: 0, paidLate: 0, unpaid: 0 },
+        );
+
+        return {
+          leaseId: lease.id,
+          startDate: lease.startDate,
+          endDate: lease.endDate,
+          effectiveEndDate: lease.effectiveEndDate,
+          tenantEmail: lease.tenant?.email ?? null,
+          monthlyRent: Number(lease.rentAmount),
+          payments,
+        };
+      })
+      .sort((a, b) => {
+        const ended =
+          (b.effectiveEndDate ?? b.endDate).getTime() -
+          (a.effectiveEndDate ?? a.endDate).getTime();
+        if (ended !== 0) return ended;
+        const started = b.startDate.getTime() - a.startDate.getTime();
+        return started !== 0 ? started : a.leaseId.localeCompare(b.leaseId);
+      });
   }
 
   async update(
