@@ -4,6 +4,11 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Check } from 'lucide-react';
 import { InventoryEditor } from '@/components/InventoryEditor';
+import {
+  AddressFields,
+  AddressFieldsValue,
+  EMPTY_ADDRESS_FIELDS,
+} from '@/components/AddressFields';
 import { RequireAuth } from '@/components/RequireAuth';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -237,7 +242,8 @@ function StepProperty({
   guard: (fn: () => Promise<void>) => Promise<void>;
   onDone: (id: string) => void;
 }) {
-  const [address, setAddress] = useState('');
+  const [addressFields, setAddressFields] =
+    useState<AddressFieldsValue>(EMPTY_ADDRESS_FIELDS);
   const [propertyType, setPropertyType] = useState('Квартира');
   const [area, setArea] = useState('');
 
@@ -247,7 +253,7 @@ function StepProperty({
         e.preventDefault();
         void guard(async () => {
           const p = await createProperty({
-            address,
+            ...addressFields,
             propertyType,
             areaSqm: area ? Number(area) : undefined,
           });
@@ -257,17 +263,13 @@ function StepProperty({
     >
       <StepCard
         title="Шаг 1. Объект недвижимости"
-        hint="Начните с квартиры/помещения, которое сдаёте. Достаточно адреса — тип и площадь можно указать сейчас или позже. Именно добавление объекта делает вас собственником в системе."
+        hint="Начните с квартиры/помещения, которое сдаёте. Укажите город, улицу и дом — остальное по желанию. Тип и площадь можно указать сейчас или позже. Именно добавление объекта делает вас собственником в системе."
       >
-        <div className="space-y-1.5">
-          <Label htmlFor="ob-address">Адрес</Label>
-          <Input
-            id="ob-address"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            required
-          />
-        </div>
+        <AddressFields
+          idPrefix="ob-address"
+          value={addressFields}
+          onChange={setAddressFields}
+        />
         <div className="flex flex-wrap gap-4">
           <div className="min-w-40 flex-1 space-y-1.5">
             <Label htmlFor="ob-type">Тип</Label>

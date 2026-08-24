@@ -3,7 +3,12 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, FileText, Gauge, Wallet } from 'lucide-react';
+import { AlertTriangle, FileText, Gauge, Pencil, Wallet } from 'lucide-react';
+import {
+  AddressFields,
+  AddressFieldsValue,
+  EMPTY_ADDRESS_FIELDS,
+} from '@/components/AddressFields';
 import { AppShell } from '@/components/AppShell';
 import { LeaseStatusPill } from '@/components/LeaseStatusPill';
 import { List, Row } from '@/components/List';
@@ -14,11 +19,11 @@ import { Segmented } from '@/components/Segmented';
 import { StatusPill } from '@/components/StatusPill';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
-import { getProperty, Property } from '@/lib/properties';
+import { getProperty, Property, updateProperty } from '@/lib/properties';
 import { addElevenMonths, createLease, Lease, listLeases } from '@/lib/leases';
 import {
   createMeter,
@@ -38,7 +43,14 @@ import {
 } from '@/lib/catalog';
 import { formatMoney } from '@/lib/format';
 
-type SheetKind = null | 'service' | 'meter' | 'reading' | 'editMeter' | 'lease';
+type SheetKind =
+  | null
+  | 'property'
+  | 'service'
+  | 'meter'
+  | 'reading'
+  | 'editMeter'
+  | 'lease';
 
 function PropertyDetailInner() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +62,12 @@ function PropertyDetailInner() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState<SheetKind>(null);
+
+  const [editAddress, setEditAddress] =
+    useState<AddressFieldsValue>(EMPTY_ADDRESS_FIELDS);
+  const [editPropertyType, setEditPropertyType] = useState('');
+  const [editArea, setEditArea] = useState('');
+  const [editDescription, setEditDescription] = useState('');
 
   const [lStartDate, setLStartDate] = useState('');
   const [lEndDate, setLEndDate] = useState('');
@@ -251,6 +269,52 @@ function PropertyDetailInner() {
     }
   }
 
+  function openPropertyEdit() {
+    if (!property) return;
+    setEditAddress({
+      city: property.city ?? '',
+      street: property.street ?? '',
+      house: property.house ?? '',
+      building: property.building ?? '',
+      floor: property.floor ?? '',
+      apartment: property.apartment ?? '',
+      cadastralNumber: property.cadastralNumber ?? '',
+    });
+    setEditPropertyType(property.propertyType);
+    setEditArea(property.areaSqm != null ? String(property.areaSqm) : '');
+    setEditDescription(property.description ?? '');
+    setError(null);
+    setSheet('property');
+  }
+
+  async function onSaveProperty(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const optionalValue = (value: string): string | null =>
+      value.trim() === '' ? null : value;
+    try {
+      await updateProperty(id, {
+        city: editAddress.city,
+        street: editAddress.street,
+        house: editAddress.house,
+        building: optionalValue(editAddress.building),
+        floor: optionalValue(editAddress.floor),
+        apartment: optionalValue(editAddress.apartment),
+        cadastralNumber: optionalValue(editAddress.cadastralNumber),
+        propertyType: editPropertyType,
+        areaSqm: editArea ? Number(editArea) : undefined,
+        description: editDescription,
+      });
+      closeSheet();
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка сохранения');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const addBtn = (kind: SheetKind) => (
     <Button variant="link" size="sm" onClick={() => setSheet(kind)}>
       Добавить
@@ -284,7 +348,12 @@ function PropertyDetailInner() {
             back="/properties"
             backLabel="Аренда"
             title={property.address}
-            subtitle={`${property.propertyType}${property.areaSqm ? ` · ${property.areaSqm} м²` : ''} · ${property.timezone}`}
+            subtitle={`${property.propertyType}${property.areaSqm ? ` · ${property.areaSqm} м²` : ''} · ${property.timezone}${property.cadastralNumber ? ` · Кадастровый № ${property.cadastralNumber}` : ''}`}
+            action={
+              <Button variant="secondary" onClick={openPropertyEdit}>
+                <Pencil aria-hidden /> Редактировать
+              </Button>
+            }
           />
           {errorBox}
           {readMsg && (
@@ -369,7 +438,19 @@ function PropertyDetailInner() {
                         key={s.id}
                         icon={Wallet}
                         title={s.name}
-                        subtitle={SERVICE_TYPE_LABEL[s.serviceType]}
+                        subtitle={
+                          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span>{SERVICE_TYPE_LABEL[s.serviceType]}</span>
+                            {s.sourceRequestId && <span>· из заявки</span>}
+                            {s.serviceType === 'one_time' && (
+                              <StatusPill tone={s.billedAt ? 'success' : 'warn'}>
+                                {s.billedAt
+                                  ? `Выставлено ${new Date(s.billedAt).toLocaleDateString('ru-RU')}`
+                                  : 'Ждёт выставления'}
+                              </StatusPill>
+                            )}
+                          </span>
+                        }
                         value={
                           <span className="font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
                             {formatMoney(s.price)} ₽
@@ -384,6 +465,61 @@ function PropertyDetailInner() {
           </div>
         </>
       )}
+
+      <Dialog open={sheet === 'property'} onOpenChange={(open) => !open && closeSheet()}>
+        <DialogContent title="Редактировать объект">
+          <form onSubmit={onSaveProperty} className="space-y-4">
+            <AddressFields
+              idPrefix="edit-address"
+              value={editAddress}
+              onChange={setEditAddress}
+              legacyAddress={
+                property && !property.city && !property.street && !property.house
+                  ? property.address
+                  : undefined
+              }
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-property-type">Тип объекта</Label>
+              <Input
+                id="edit-property-type"
+                value={editPropertyType}
+                onChange={(e) => setEditPropertyType(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-property-area">Площадь, м²</Label>
+              <Input
+                id="edit-property-area"
+                type="number"
+                min={0}
+                step="0.01"
+                value={editArea}
+                onChange={(e) => setEditArea(e.target.value)}
+                placeholder="—"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-property-description">Описание</Label>
+              <Textarea
+                id="edit-property-description"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+            </div>
+            {sheetError}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={closeSheet}>
+                Отмена
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Сохранение…' : 'Сохранить'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={sheet === 'lease'} onOpenChange={(open) => !open && closeSheet()}>
         <DialogContent title="Новый договор">

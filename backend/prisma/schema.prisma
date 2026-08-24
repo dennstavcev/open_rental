@@ -65,13 +65,28 @@ model Notification {
 // landlord для этого объекта. Фото и вычисляемый статус (сдаётся/свободно)
 // добавляются позже (Documents/Lease-модули).
 model Property {
-  id           String   @id @default(uuid())
-  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId      String
-  address      String
-  propertyType String
-  areaSqm      Float?
-  description  String?
+  id      String @id @default(uuid())
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+  // Структурированный адрес (ADR-0026) — источник правды. Поле address
+  // остаётся денормализованным кешем: его пересобирает бэкенд, из клиента
+  // оно больше не принимается.
+  city            String?
+  street          String?
+  house           String?
+  // Корпус/строение, этаж, квартира — есть не у всех объектов.
+  building        String?
+  // Этаж строкой: бывает «цоколь», «мансарда», «1 из 9».
+  floor           String?
+  apartment       String?
+  // Кадастровый номер — данные об объекте из публичного реестра
+  // Росреестра. Это не персональные данные человека, ADR-0021 к нему
+  // отношения не имеет.
+  cadastralNumber String?
+  address         String
+  propertyType    String
+  areaSqm         Float?
+  description     String?
   // IANA timezone, нужен для корректной границы расчётного периода по
   // регионам РФ (docs/ARCHITECTURE.md, docs/MVP_SCOPE.md §4).
   timezone     String   @default("Europe/Moscow")
@@ -392,17 +407,17 @@ model LeaseSignedScan {
 // (lease-contract.template.ts); удаляется фоновой задачей ретеншена
 // (3 года после окончания Lease, см. ADR-0021).
 model LeasePartyInfo {
-  id          String     @id @default(uuid())
-  lease       Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  leaseId     String
-  role        LeaseParty
-  enteredBy   User       @relation(fields: [enteredById], references: [id])
-  enteredById String
-  dataEnc     String
+  id                   String     @id @default(uuid())
+  lease                Lease      @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId              String
+  role                 LeaseParty
+  enteredBy            User       @relation(fields: [enteredById], references: [id])
+  enteredById          String
+  dataEnc              String
   consentAcceptedAt    DateTime?
   consentPolicyVersion String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   @@unique([leaseId, role])
   @@index([leaseId])

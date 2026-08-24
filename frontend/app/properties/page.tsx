@@ -1,10 +1,22 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  FormEvent,
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Building2, FileText, Plus } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
+import {
+  AddressFields,
+  AddressFieldsValue,
+  EMPTY_ADDRESS_FIELDS,
+} from '@/components/AddressFields';
 import { EmptyState } from '@/components/EmptyState';
 import { Fab } from '@/components/Fab';
 import { LeaseStatusPill } from '@/components/LeaseStatusPill';
@@ -41,7 +53,8 @@ function PropertiesInner() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const [address, setAddress] = useState('');
+  const [addressFields, setAddressFields] =
+    useState<AddressFieldsValue>(EMPTY_ADDRESS_FIELDS);
   const [propertyType, setPropertyType] = useState('Квартира');
   const [area, setArea] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,6 +89,27 @@ function PropertiesInner() {
     [leases, user],
   );
 
+  const propertyGroups = useMemo(() => {
+    const grouped = new Map<string | null, Property[]>();
+    for (const property of items) {
+      const city = property.city?.trim() || null;
+      grouped.set(city, [...(grouped.get(city) ?? []), property]);
+    }
+    return [...grouped.entries()]
+      .sort(([left], [right]) => {
+        if (left === null && right === null) return 0;
+        if (left === null) return 1;
+        if (right === null) return -1;
+        return left.localeCompare(right, 'ru');
+      })
+      .map(([city, properties]) => ({
+        key: city ?? '__legacy__',
+        title: city ?? 'Город не указан',
+        properties,
+      }));
+  }, [items]);
+  const showGroupTitles = propertyGroups.length > 1;
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -86,11 +120,11 @@ function PropertiesInner() {
     setError(null);
     try {
       await createProperty({
-        address,
+        ...addressFields,
         propertyType,
         areaSqm: area ? Number(area) : undefined,
       });
-      setAddress('');
+      setAddressFields({ ...EMPTY_ADDRESS_FIELDS });
       setArea('');
       setShowForm(false);
       await load();
@@ -168,78 +202,105 @@ function PropertiesInner() {
                     </TR>
                   </THead>
                   <tbody>
-                    {items.map((p) => {
-                      const lease = leaseByProperty[p.id];
-                      return (
-                        <TR
-                          key={p.id}
-                          className="cursor-pointer"
-                          onClick={() => router.push(`/properties/${p.id}`)}
-                        >
-                          <TD>
-                            <Link
-                              href={`/properties/${p.id}`}
-                              className="font-semibold text-content underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                    {propertyGroups.map((group) => (
+                      <Fragment key={group.key}>
+                        {showGroupTitles && (
+                          <tr>
+                            <th
+                              colSpan={5}
+                              className="border-b border-line bg-sand-200/40 px-5 py-2 text-left text-sm font-semibold text-content-secondary"
                             >
-                              {p.address}
-                            </Link>
-                          </TD>
-                          <TD className="text-content-secondary">{p.propertyType}</TD>
-                          <TD numeric className="text-content-secondary">
-                            {p.areaSqm ? `${p.areaSqm} м²` : '—'}
-                          </TD>
-                          <TD numeric>
-                            {lease ? (
-                              <span className="font-bold text-terracotta-500">
-                                {formatMoney(lease.rentAmount)} ₽/мес
-                              </span>
-                            ) : (
-                              '—'
-                            )}
-                          </TD>
-                          <TD>
-                            {lease ? (
-                              <LeaseStatusPill status={lease.status} />
-                            ) : (
-                              <StatusPill tone="neutral">Без договора</StatusPill>
-                            )}
-                          </TD>
-                        </TR>
-                      );
-                    })}
+                              {group.title}
+                            </th>
+                          </tr>
+                        )}
+                        {group.properties.map((p) => {
+                          const lease = leaseByProperty[p.id];
+                          return (
+                            <TR
+                              key={p.id}
+                              className="cursor-pointer"
+                              onClick={() => router.push(`/properties/${p.id}`)}
+                            >
+                              <TD>
+                                <Link
+                                  href={`/properties/${p.id}`}
+                                  className="font-semibold text-content underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                                >
+                                  {p.address}
+                                </Link>
+                              </TD>
+                              <TD className="text-content-secondary">
+                                {p.propertyType}
+                              </TD>
+                              <TD numeric className="text-content-secondary">
+                                {p.areaSqm ? `${p.areaSqm} м²` : '—'}
+                              </TD>
+                              <TD numeric>
+                                {lease ? (
+                                  <span className="font-bold text-terracotta-500">
+                                    {formatMoney(lease.rentAmount)} ₽/мес
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
+                              </TD>
+                              <TD>
+                                {lease ? (
+                                  <LeaseStatusPill status={lease.status} />
+                                ) : (
+                                  <StatusPill tone="neutral">Без договора</StatusPill>
+                                )}
+                              </TD>
+                            </TR>
+                          );
+                        })}
+                      </Fragment>
+                    ))}
                   </tbody>
                 </Table>
               </div>
 
               {/* Мобильный — те же данные строками-карточками. */}
-              <List className="lg:hidden">
-                {items.map((p) => {
-                  const lease = leaseByProperty[p.id];
-                  return (
-                    <Row
-                      key={p.id}
-                      icon={Building2}
-                      title={p.address}
-                      subtitle={`${p.propertyType}${p.areaSqm ? ` · ${p.areaSqm} м²` : ''}`}
-                      value={
-                        <span className="flex flex-col items-end gap-1">
-                          {lease && (
-                            <span className="font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
-                              {formatMoney(lease.rentAmount)} ₽
-                            </span>
-                          )}
-                          {lease ? (
-                            <LeaseStatusPill status={lease.status} />
-                          ) : (
-                            <StatusPill tone="neutral">Без договора</StatusPill>
-                          )}
-                        </span>
-                      }
-                      href={`/properties/${p.id}`}
-                    />
-                  );
-                })}
-              </List>
+              <div className="space-y-5 lg:hidden">
+                {propertyGroups.map((group) => (
+                  <div key={group.key}>
+                    {showGroupTitles && (
+                      <h2 className="mb-2 text-sm font-semibold text-content-secondary">
+                        {group.title}
+                      </h2>
+                    )}
+                    <List>
+                      {group.properties.map((p) => {
+                        const lease = leaseByProperty[p.id];
+                        return (
+                          <Row
+                            key={p.id}
+                            icon={Building2}
+                            title={p.address}
+                            subtitle={`${p.propertyType}${p.areaSqm ? ` · ${p.areaSqm} м²` : ''}`}
+                            value={
+                              <span className="flex flex-col items-end gap-1">
+                                {lease && (
+                                  <span className="font-bold text-terracotta-500 [font-variant-numeric:tabular-nums]">
+                                    {formatMoney(lease.rentAmount)} ₽
+                                  </span>
+                                )}
+                                {lease ? (
+                                  <LeaseStatusPill status={lease.status} />
+                                ) : (
+                                  <StatusPill tone="neutral">Без договора</StatusPill>
+                                )}
+                              </span>
+                            }
+                            href={`/properties/${p.id}`}
+                          />
+                        );
+                      })}
+                    </List>
+                  </div>
+                ))}
+              </div>
             </>
           )}
 
@@ -267,16 +328,11 @@ function PropertiesInner() {
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent title="Новый объект">
           <form onSubmit={onCreate} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="prop-address">Адрес</Label>
-              <Input
-                id="prop-address"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Город, улица, дом, квартира"
-                required
-              />
-            </div>
+            <AddressFields
+              idPrefix="prop-address"
+              value={addressFields}
+              onChange={setAddressFields}
+            />
             <div className="flex flex-wrap gap-4">
               <div className="min-w-40 flex-1 space-y-1.5">
                 <Label htmlFor="prop-type">Тип</Label>
