@@ -28,16 +28,22 @@ import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import {
   cancelLeaseInvitation,
+  confirmReturnAct,
   generateDocument,
   generateHandoverAct,
+  generateReturnAct,
   getDocument,
   getHandoverAct,
   getLease,
+  getReturnAct,
   Lease,
   LeaseDocument,
+  LeaseInventoryItem,
   LeaseSignedScan,
+  listInventoryItems,
   listSignedScans,
   sendLease,
+  submitReturnAct,
   uploadSignedScan,
 } from '@/lib/leases';
 import { formatMoney } from '@/lib/format';
@@ -116,18 +122,25 @@ function LeaseDetailInner() {
   const [showDoc, setShowDoc] = useState(false);
   const [actHtml, setActHtml] = useState<string | null>(null);
   const [showAct, setShowAct] = useState(false);
+  const [returnActDoc, setReturnActDoc] = useState<LeaseDocument | null>(null);
+  const [showReturnAct, setShowReturnAct] = useState(false);
+  const [returnItems, setReturnItems] = useState<LeaseInventoryItem[]>([]);
   const [itemsCount, setItemsCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [editingInvite, setEditingInvite] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const returnActOutdated = useRef(false);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       const l = await getLease(id);
       setLease(l);
+      const inventory = await listInventoryItems(id);
+      setReturnItems(inventory);
+      setItemsCount(inventory.length);
       setPiStatus(await getPartyInfoStatus(id).catch(() => null));
       if (l.status === 'sent' || l.status === 'active') {
         setScans(await listSignedScans(id));
@@ -141,6 +154,15 @@ function LeaseDetailInner() {
         setActHtml((await getHandoverAct(id)).content);
       } catch {
         setActHtml(null);
+      }
+      if (l.status === 'terminated' && !returnActOutdated.current) {
+        try {
+          setReturnActDoc(await getReturnAct(id));
+        } catch {
+          setReturnActDoc(null);
+        }
+      } else if (l.status !== 'terminated') {
+        setReturnActDoc(null);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
@@ -211,6 +233,59 @@ function LeaseDetailInner() {
     }
   }
 
+  async function onSubmitReturnAct() {
+    setBusy(true);
+    setError(null);
+    try {
+      await submitReturnAct(id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка отправки акта');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmReturnAct() {
+    setBusy(true);
+    setError(null);
+    try {
+      await confirmReturnAct(id);
+      // Черновая печатная версия больше не соответствует подтверждённому
+      // снимку: её нужно сформировать заново.
+      returnActOutdated.current = true;
+      setReturnActDoc(null);
+      setShowReturnAct(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка подтверждения акта');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onGenerateReturnAct() {
+    setBusy(true);
+    setError(null);
+    try {
+      const generated = await generateReturnAct(id);
+      returnActOutdated.current = false;
+      setReturnActDoc(generated);
+      setShowReturnAct(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка генерации акта возврата');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onReturnStateChanged() {
+    returnActOutdated.current = true;
+    setReturnActDoc(null);
+    setShowReturnAct(false);
+    await load();
+  }
+
   async function onUpload(e: FormEvent) {
     e.preventDefault();
     const file = fileRef.current?.files?.[0];
@@ -231,7 +306,23 @@ function LeaseDetailInner() {
   // Генерация документов и правка описи — только собственник (эндпоинты
   // landlord-only), причём опись — только пока договор черновик.
   const isLandlord = !!lease && !!user && lease.landlordId === user.id;
+  const isTenant = !!lease && !!user && lease.tenantId === user.id;
   const inventoryEditable = isLandlord && lease?.status === 'draft';
+  const returnEditable = Boolean(
+    isLandlord && lease?.status === 'terminated' && !lease.returnActConfirmedAt,
+  );
+  const returnComplete = returnItems.every((item) => item.returnStatus !== null);
+  const returnDamageTotal = lease?.returnActConfirmedAt
+    ? Number(lease.returnActDamageTotal ?? 0)
+    : returnItems.reduce((total, item) => {
+        if (item.returnStatus !== 'damaged' && item.returnStatus !== 'missing') {
+          return total;
+        }
+        return total + Number(item.damageAmount ?? 0);
+      }, 0);
+  const returnUncovered = lease?.returnActConfirmedAt
+    ? Number(lease.returnActUncovered ?? 0)
+    : Math.max(returnDamageTotal - Number(lease?.depositReturnAmount ?? 0), 0);
   const latestPartyUpdate = piStatus
     ? [piStatus.self.updatedAt, piStatus.counterparty.updatedAt]
         .filter((value): value is string => Boolean(value))
@@ -522,6 +613,113 @@ function LeaseDetailInner() {
                   </div>
                 )}
               </Section>
+
+              {lease.status === 'terminated' && (
+                <Section
+                  title="Акт возврата имущества"
+                  action={
+                    lease.returnActConfirmedAt ? (
+                      <StatusPill tone="success">
+                        Подтверждён {formatDateRu(lease.returnActConfirmedAt)}
+                      </StatusPill>
+                    ) : lease.returnActSubmittedAt ? (
+                      <StatusPill tone="warn">Ожидает подтверждения</StatusPill>
+                    ) : (
+                      <StatusPill>Ожидает заполнения</StatusPill>
+                    )
+                  }
+                >
+                  <p className="mb-4 max-w-prose text-sm text-content-muted">
+                    Зафиксируйте состояние каждой позиции. Состав описи после
+                    заключения договора не меняется.
+                  </p>
+                  <InventoryEditor
+                    leaseId={id}
+                    editable={returnEditable}
+                    returnMode
+                    onChanged={() => void onReturnStateChanged()}
+                  />
+
+                  <Card className="mt-4">
+                    <Fact
+                      label="Итого ущерб"
+                      value={`${formatMoney(returnDamageTotal)} ₽`}
+                    />
+                    <Fact
+                      label="Депозит к возврату"
+                      value={`${formatMoney(lease.depositReturnAmount ?? 0)} ₽`}
+                    />
+                    {returnUncovered > 0 && (
+                      <Fact
+                        label="Задолженность сверх депозита"
+                        value={`${formatMoney(returnUncovered)} ₽`}
+                      />
+                    )}
+                  </Card>
+
+                  {isLandlord && !lease.returnActConfirmedAt && (
+                    <div className="mt-4">
+                      <p className="mb-3 max-w-prose text-sm text-content-muted">
+                        После подтверждения арендатора сумма ущерба уменьшит возврат
+                        депозита. Подтверждённые значения изменить нельзя.
+                      </p>
+                      <Button
+                        onClick={onSubmitReturnAct}
+                        disabled={busy || !returnComplete}
+                      >
+                        {busy ? 'Отправка…' : 'Отправить на подтверждение'}
+                      </Button>
+                    </div>
+                  )}
+
+                  {isTenant && !lease.returnActConfirmedAt && (
+                    <div className="mt-4">
+                      <Button
+                        onClick={onConfirmReturnAct}
+                        disabled={busy || !lease.returnActSubmittedAt}
+                      >
+                        {busy ? 'Подтверждение…' : 'Подтвердить акт'}
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="mt-5 border-t border-line pt-5">
+                    {isLandlord && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={onGenerateReturnAct}
+                        disabled={busy}
+                      >
+                        {returnActDoc ? 'Перегенерировать документ' : 'Сгенерировать документ'}
+                      </Button>
+                    )}
+                    {returnActOutdated.current && !returnActDoc && (
+                      <p className="mt-3 flex gap-2 rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
+                        <AlertTriangle aria-hidden className="size-4 shrink-0 text-warn" />
+                        Ранее сгенерированный документ устарел — сформируйте новую
+                        версию после изменений.
+                      </p>
+                    )}
+                    {returnActDoc ? (
+                      <div className="mt-3">
+                        <DocumentPreview
+                          title="Акт возврата имущества"
+                          html={returnActDoc.content}
+                          open={showReturnAct}
+                          onToggle={() => setShowReturnAct((value) => !value)}
+                        />
+                      </div>
+                    ) : (
+                      !returnActOutdated.current && (
+                        <p className="mt-3 text-sm text-content-muted">
+                          Документ ещё не сгенерирован.
+                        </p>
+                      )
+                    )}
+                  </div>
+                </Section>
+              )}
 
               {(lease.status === 'sent' || lease.status === 'active') && (
                 <Section title="Подписанные сканы">

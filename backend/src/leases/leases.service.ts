@@ -395,6 +395,26 @@ export class LeasesService {
     return lease;
   }
 
+  // Отдельная граница для состояния имущества: состав описи уже
+  // неизменяем, но результат возврата появляется только после расторжения.
+  async getOwnedTerminated(
+    landlordId: string,
+    leaseId: string,
+  ): Promise<Lease> {
+    const lease = await this.prisma.lease.findUnique({
+      where: { id: leaseId },
+    });
+    if (!lease || lease.landlordId !== landlordId) {
+      throw new NotFoundException('Договор не найден');
+    }
+    if (lease.status !== LeaseStatus.terminated) {
+      throw new ConflictException(
+        'Состояние имущества фиксируется после расторжения договора',
+      );
+    }
+    return lease;
+  }
+
   private async getPendingInvitationFor(
     userEmail: string,
     invitationId: string,

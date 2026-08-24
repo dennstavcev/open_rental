@@ -17,6 +17,7 @@ import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { LeaseInventoryItemsService } from './lease-inventory-items.service';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { UpdateInventoryItemDto } from './dto/update-inventory-item.dto';
+import { UpdateInventoryReturnDto } from './dto/update-inventory-return.dto';
 
 @Controller('leases/:leaseId/inventory-items')
 @UseGuards(JwtAuthGuard)
@@ -48,6 +49,16 @@ export class LeaseInventoryItemsController {
     @Body() dto: UpdateInventoryItemDto,
   ): Promise<LeaseInventoryItem> {
     return this.items.update(user.id, leaseId, id, dto);
+  }
+
+  @Patch(':id/return-state')
+  updateReturnState(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateInventoryReturnDto,
+  ): Promise<LeaseInventoryItem> {
+    return this.items.updateReturnState(user.id, leaseId, id, dto);
   }
 
   @Delete(':id')

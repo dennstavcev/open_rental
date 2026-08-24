@@ -205,28 +205,40 @@ export class BillingService {
     const draft = await this.prisma.bill.findFirst({
       where: { leaseId: lease.id, stage: BillStage.draft },
       include: { lineItems: true, payment: true, paymentProof: true, lease: true },
+      orderBy: { periodStart: 'asc' },
     });
     if (!draft) {
       return;
     }
-    const rentLine = draft.lineItems.find(
-      (li) => li.kind === BillItemKind.rent,
-    );
-    if (rentLine) {
-      const totalDays = daysBetween(draft.periodStart, draft.periodEnd);
-      const usedDays = Math.min(
-        totalDays,
-        Math.max(1, daysBetween(draft.periodStart, effectiveEndDate)),
+    try {
+      const rentLine = draft.lineItems.find(
+        (li) => li.kind === BillItemKind.rent,
       );
-      const prorated = round2(
-        (toNumber(rentLine.amount) * usedDays) / totalDays,
+      if (rentLine) {
+        const totalDays = daysBetween(draft.periodStart, draft.periodEnd);
+        const usedDays = Math.min(
+          totalDays,
+          Math.max(1, daysBetween(draft.periodStart, effectiveEndDate)),
+        );
+        const prorated = round2(
+          (toNumber(rentLine.amount) * usedDays) / totalDays,
+        );
+        await this.prisma.billLineItem.update({
+          where: { id: rentLine.id },
+          data: {
+            amount: prorated,
+            title: `${rentLine.title} (пропорционально)`,
+          },
+        });
+      }
+      await this.finalizeBill(draft, { createNext: false });
+    } catch (error) {
+      this.logger.error(
+        `Не удалось применить биллинг расторжения: leaseId=${lease.id}, billId=${draft.id}`,
+        error instanceof Error ? error.stack : String(error),
       );
-      await this.prisma.billLineItem.update({
-        where: { id: rentLine.id },
-        data: { amount: prorated, title: `${rentLine.title} (пропорционально)` },
-      });
+      throw error;
     }
-    await this.finalizeBill(draft, { createNext: false });
   }
 
   // Финализация счёта + (опц.) создание черновика следующего периода. Общая
@@ -237,14 +249,96 @@ export class BillingService {
   ): Promise<void> {
     const createNext = opts.createNext ?? true;
     await this.prisma.$transaction(async (tx) => {
-      await tx.bill.update({
-        where: { id: bill.id },
+      await tx.$queryRaw`SELECT id FROM leases WHERE id = ${bill.lease.id} FOR UPDATE`;
+
+      const claimed = await tx.bill.updateMany({
+        where: { id: bill.id, stage: BillStage.draft },
         data: { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending },
       });
+      if (claimed.count !== 1) {
+        return;
+      }
+
+      // При расторжении строка аренды уже могла стать пропорциональной.
+      // Снимок bill загружен раньше, поэтому итог считаем только по БД.
+      const lineItems = await tx.billLineItem.findMany({
+        where: { billId: bill.id },
+      });
+      const total = billTotal(lineItems);
+
+      let nextBill: Bill | null = null;
       if (createNext) {
         const next = nextPeriod(bill.periodEnd, bill.lease.paymentDay);
-        await this.createDraftForPeriod(tx, bill.lease, next);
+        nextBill = await this.createDraftForPeriod(tx, bill.lease, next);
       }
+
+      if (total >= 0) {
+        return;
+      }
+
+      const carry = round2(-total);
+      if (nextBill) {
+        await tx.billLineItem.create({
+          data: {
+            billId: bill.id,
+            kind: BillItemKind.manual,
+            source: BillItemSource.manual,
+            amount: carry,
+            title: 'Перенос вычета на следующий период',
+            sourceRefId: nextBill.id,
+          },
+        });
+        await tx.billLineItem.create({
+          data: {
+            billId: nextBill.id,
+            kind: BillItemKind.manual,
+            source: BillItemSource.manual,
+            amount: -carry,
+            title: 'Перенос вычета с прошлого периода',
+            sourceRefId: bill.id,
+          },
+        });
+        return;
+      }
+
+      await tx.billLineItem.create({
+        data: {
+          billId: bill.id,
+          kind: BillItemKind.manual,
+          source: BillItemSource.manual,
+          amount: carry,
+          title: 'Перенос в возврат депозита',
+          sourceRefId: null,
+        },
+      });
+      const currentLease = await tx.lease.findUnique({
+        where: { id: bill.lease.id },
+      });
+      if (!currentLease) {
+        throw new NotFoundException('Договор не найден');
+      }
+      const uncovered = currentLease.returnActUncoveredRemaining;
+      let carryToDeposit = new Prisma.Decimal(carry);
+      let uncoveredRemaining: Prisma.Decimal | null = null;
+      if (uncovered != null && uncovered.greaterThan(0)) {
+        const covered = uncovered.lessThan(carryToDeposit)
+          ? uncovered
+          : carryToDeposit;
+        uncoveredRemaining = uncovered.minus(covered);
+        carryToDeposit = carryToDeposit.minus(covered);
+      }
+      await tx.lease.update({
+        where: { id: currentLease.id },
+        data: {
+          depositReturnAmount: round2(
+            toNumber(currentLease.depositReturnAmount ?? 0) +
+              carryToDeposit.toNumber(),
+          ),
+          ...(uncoveredRemaining !== null
+            ? { returnActUncoveredRemaining: uncoveredRemaining }
+            : {}),
+        },
+      });
     });
   }
 

@@ -131,6 +131,16 @@ model Lease {
   // Заполняются при расторжении (termination).
   effectiveEndDate         DateTime?
   depositReturnAmount      Decimal?    @db.Decimal(12, 2)
+  // Собственник отправил заполненный акт возврата арендатору.
+  returnActSubmittedAt     DateTime?
+  // Подтверждение фиксирует вычет и защищает его от повторного применения.
+  returnActConfirmedAt     DateTime?
+  // Неизменяемый денежный снимок подтверждённого акта (ADR-0027).
+  returnActDamageTotal     Decimal?     @db.Decimal(12, 2)
+  returnActDepositReturn   Decimal?     @db.Decimal(12, 2)
+  returnActUncovered       Decimal?     @db.Decimal(12, 2)
+  // Только этот остаток меняется, когда перенос из счёта гасит ущерб.
+  returnActUncoveredRemaining Decimal?  @db.Decimal(12, 2)
   createdAt                DateTime    @default(now())
   updatedAt                DateTime    @updatedAt
 
@@ -173,6 +183,14 @@ model LeaseDocument {
 enum LeaseDocumentKind {
   contract
   handover_act
+  return_act
+}
+
+// Состояние позиции описи при возврате (ADR-0027).
+enum InventoryReturnStatus {
+  ok
+  damaged
+  missing
 }
 
 // Позиция описи имущества, передаваемого по договору (ADR-0018) — рендерится
@@ -187,6 +205,12 @@ model LeaseInventoryItem {
   brand     String?
   model     String?
   quantity  Int      @default(1)
+  // Состояние заполняется после расторжения и влияет на деньги только
+  // после подтверждения акта арендатором.
+  returnStatus InventoryReturnStatus?
+  returnNote   String?
+  // Сумма осмысленна только для повреждённой или отсутствующей позиции.
+  damageAmount Decimal?               @db.Decimal(12, 2)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1,6 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as Handlebars from 'handlebars';
-import { LeaseDocument, LeaseDocumentKind, LeaseParty } from '@prisma/client';
+import {
+  InventoryReturnStatus,
+  LeaseDocument,
+  LeaseDocumentKind,
+  LeaseParty,
+  LeaseStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from './leases.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -8,11 +19,13 @@ import { toNumber } from '../billing/billing.util';
 import { LEASE_CONTRACT_TEMPLATE } from './templates/lease-contract.template';
 import { LEASE_HANDOVER_ACT_TEMPLATE } from './templates/lease-handover-act.template';
 import { PartyInfoDto } from '../party-info/dto/party-info.dto';
+import { LEASE_RETURN_ACT_TEMPLATE } from './templates/lease-return-act.template';
 
 const RU_MONTHS = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ];
+const BLANK_CITY = '____________';
 
 // Прочерки для незаполненных персональных полей (ADR-0021) — по длине как
 // в исходном шаблоне dogovor_arendy.docx.
@@ -31,6 +44,9 @@ export class LeaseDocumentsService {
   );
   private readonly handoverActTemplate = Handlebars.compile(
     LEASE_HANDOVER_ACT_TEMPLATE,
+  );
+  private readonly returnActTemplate = Handlebars.compile(
+    LEASE_RETURN_ACT_TEMPLATE,
   );
 
   constructor(
@@ -55,6 +71,8 @@ export class LeaseDocumentsService {
 
     const content = this.contractTemplate({
       propertyAddress: lease.property.address,
+      cadastralNumber:
+        lease.property.cadastralNumber?.trim() || '____________',
       propertyArea:
         lease.property.areaSqm != null
           ? `${toNumber(lease.property.areaSqm)} кв.м`
@@ -64,7 +82,7 @@ export class LeaseDocumentsService {
       rentAmount: toNumber(lease.rentAmount),
       paymentDay: lease.paymentDay,
       depositAmount: toNumber(lease.depositAmount),
-      city: 'Москва',
+      city: lease.property.city?.trim() || BLANK_CITY,
       generatedDate: this.formatRuDate(new Date()),
       landlordFullName: lease.landlord.fullName,
       tenantFullName: lease.tenant?.fullName ?? BLANK_NAME,
@@ -163,7 +181,7 @@ export class LeaseDocumentsService {
         model: item.model ?? '—',
         quantity: item.quantity,
       })),
-      city: 'Москва',
+      city: lease.property.city?.trim() || BLANK_CITY,
       generatedDate: this.formatRuDate(new Date()),
     });
 
@@ -184,6 +202,101 @@ export class LeaseDocumentsService {
       leaseId,
       LeaseDocumentKind.handover_act,
       'Акт приёма-передачи имущества ещё не сгенерирован',
+    );
+  }
+
+  async generateReturnAct(
+    userId: string,
+    leaseId: string,
+  ): Promise<LeaseDocument> {
+    const lease = await this.prisma.lease.findUnique({
+      where: { id: leaseId },
+      include: { property: true },
+    });
+    if (!lease || lease.landlordId !== userId) {
+      throw new NotFoundException('Договор не найден');
+    }
+    if (lease.status !== LeaseStatus.terminated) {
+      throw new ConflictException(
+        'Акт возврата формируется после расторжения договора',
+      );
+    }
+
+    const items = await this.prisma.leaseInventoryItem.findMany({
+      where: { leaseId },
+      orderBy: { createdAt: 'asc' },
+    });
+    let totalDamage: Prisma.Decimal;
+    let depositReturn: Prisma.Decimal;
+    let uncovered: Prisma.Decimal;
+    if (lease.returnActConfirmedAt) {
+      // Подтверждённый документ воспроизводит согласованный снимок, даже
+      // если позже биллинг изменил живой возврат или остаток ущерба.
+      totalDamage = new Prisma.Decimal(lease.returnActDamageTotal ?? 0);
+      depositReturn = new Prisma.Decimal(lease.returnActDepositReturn ?? 0);
+      uncovered = new Prisma.Decimal(lease.returnActUncovered ?? 0);
+    } else {
+      totalDamage = items.reduce((total, item) => {
+        if (
+          (item.returnStatus === InventoryReturnStatus.damaged ||
+            item.returnStatus === InventoryReturnStatus.missing) &&
+          item.damageAmount !== null
+        ) {
+          return total.plus(item.damageAmount);
+        }
+        return total;
+      }, new Prisma.Decimal(0));
+      const current = new Prisma.Decimal(lease.depositReturnAmount ?? 0);
+      const applied = current.lessThan(totalDamage) ? current : totalDamage;
+      depositReturn = current.minus(applied);
+      uncovered = totalDamage.minus(applied);
+    }
+
+    const content = this.returnActTemplate({
+      propertyAddress: lease.property.address,
+      items: items.map((item, index) => ({
+        position: index + 1,
+        type: item.type,
+        brand: item.brand ?? '—',
+        model: item.model ?? '—',
+        quantity: item.quantity,
+        returnStatus: item.returnStatus
+          ? this.returnStatusLabel(item.returnStatus)
+          : 'Не указано',
+        returnNote: item.returnNote ?? '—',
+        damageAmount:
+          item.damageAmount !== null
+            ? `${item.damageAmount.toFixed(2)} ₽`
+            : '—',
+      })),
+      totalDamage: totalDamage.toFixed(2),
+      depositReturn: depositReturn.toFixed(2),
+      uncovered: uncovered.toFixed(2),
+      hasUncovered: uncovered.greaterThan(0),
+      statusText: lease.returnActConfirmedAt
+        ? `Акт подтверждён арендатором ${this.formatRuDate(lease.returnActConfirmedAt)}`
+        : 'Черновик, ожидает подтверждения арендатором',
+      city: lease.property.city?.trim() || BLANK_CITY,
+      generatedDate: this.formatRuDate(new Date()),
+    });
+
+    return this.saveNextVersion(
+      leaseId,
+      LeaseDocumentKind.return_act,
+      content,
+      userId,
+    );
+  }
+
+  async getLatestReturnAct(
+    userId: string,
+    leaseId: string,
+  ): Promise<LeaseDocument> {
+    return this.getLatestOfKind(
+      userId,
+      leaseId,
+      LeaseDocumentKind.return_act,
+      'Акт возврата имущества ещё не сгенерирован',
     );
   }
 
@@ -227,6 +340,14 @@ export class LeaseDocumentsService {
 
   private formatRuDate(date: Date): string {
     return `«${date.getUTCDate()}» ${RU_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()} г.`;
+  }
+
+  private returnStatusLabel(status: InventoryReturnStatus): string {
+    return {
+      [InventoryReturnStatus.ok]: 'Норма',
+      [InventoryReturnStatus.damaged]: 'Повреждено',
+      [InventoryReturnStatus.missing]: 'Отсутствует',
+    }[status];
   }
 
   private formatBirthDate(value: string): string {

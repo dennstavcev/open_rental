@@ -13,7 +13,12 @@ const leaseWithRelations = {
   rentAmount: 50000,
   depositAmount: 0,
   paymentDay: 20,
-  property: { address: 'Москва, Тверская 1', areaSqm: 42 },
+  property: {
+    address: 'Москва, Тверская 1',
+    city: 'Иркутск',
+    areaSqm: 42,
+    cadastralNumber: '38:36:000021:1234',
+  },
   landlord: { fullName: 'Иванов Иван Иванович' },
   tenant: { fullName: 'Петров Пётр Петрович' },
 };
@@ -59,8 +64,10 @@ describe('LeaseDocumentsService', () => {
     const doc = await service.generate('landlord1', 'l1');
 
     expect(doc.version).toBe(1);
+    expect(doc.content).toContain('<b>г. Иркутск</b>');
     expect(doc.content).toContain('Москва, Тверская 1');
     expect(doc.content).toContain('42 кв.м');
+    expect(doc.content).toContain('Кадастровый номер: 38:36:000021:1234');
     expect(doc.content).toContain('50000 рублей'); // аренда
     expect(doc.content).toContain('20 числа'); // день оплаты
     expect(doc.content).toContain('11 месяцев'); // срок
@@ -159,6 +166,36 @@ describe('LeaseDocumentsService', () => {
     );
   });
 
+  it.each([null, ''])(
+    'печатает прочерк при пустом кадастровом номере: %p',
+    async (cadastralNumber) => {
+      prisma.lease.findUnique.mockResolvedValue({
+        ...leaseWithRelations,
+        property: { ...leaseWithRelations.property, cadastralNumber },
+      });
+      prisma.leaseDocument.findFirst.mockResolvedValue(null);
+
+      const doc = await service.generate('landlord1', 'l1');
+
+      expect(doc.content).toContain('Кадастровый номер: ____________');
+    },
+  );
+
+  it.each([null, '', '   '])(
+    'печатает прочерк и не падает при пустом городе договора: %p',
+    async (city) => {
+      prisma.lease.findUnique.mockResolvedValue({
+        ...leaseWithRelations,
+        property: { ...leaseWithRelations.property, city },
+      });
+      prisma.leaseDocument.findFirst.mockResolvedValue(null);
+
+      const doc = await service.generate('landlord1', 'l1');
+
+      expect(doc.content).toContain('<b>г. ____________</b>');
+    },
+  );
+
   it('нет сгенерированного текста → NotFound при getLatest', async () => {
     leases.getForUser.mockResolvedValue(leaseWithRelations);
     prisma.leaseDocument.findFirst.mockResolvedValue(null);
@@ -180,6 +217,7 @@ describe('LeaseDocumentsService', () => {
 
       expect(doc.version).toBe(1);
       expect(doc.content).toContain('Приложение №1');
+      expect(doc.content).toContain('<b>г. Иркутск</b>');
       expect(doc.content).toContain('Москва, Тверская 1');
       expect(doc.content).toContain('Холодильник');
       expect(doc.content).toContain('Bosch');
@@ -215,6 +253,18 @@ describe('LeaseDocumentsService', () => {
 
       const doc = await service.generateHandoverAct('landlord1', 'l1');
       expect(doc.content).toContain('Опись пуста');
+    });
+
+    it('при пустом городе печатает прочерк и не падает', async () => {
+      prisma.lease.findUnique.mockResolvedValue({
+        ...leaseWithRelations,
+        property: { ...leaseWithRelations.property, city: null },
+      });
+      prisma.leaseDocument.findFirst.mockResolvedValue(null);
+
+      const doc = await service.generateHandoverAct('landlord1', 'l1');
+
+      expect(doc.content).toContain('<b>г. ____________</b>');
     });
 
     it('акт чужого договора → NotFound', async () => {

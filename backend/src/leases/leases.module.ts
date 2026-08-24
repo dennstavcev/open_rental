@@ -11,6 +11,8 @@ import { LeaseDocumentsService } from './lease-documents.service';
 import { LeaseDocumentsController } from './lease-documents.controller';
 import { LeaseInventoryItemsService } from './lease-inventory-items.service';
 import { LeaseInventoryItemsController } from './lease-inventory-items.controller';
+import { LeaseReturnActService } from './lease-return-act.service';
+import { LeaseReturnActController } from './lease-return-act.controller';
 
 @Module({
   imports: [PropertiesModule, NotificationsModule],
@@ -21,12 +23,14 @@ import { LeaseInventoryItemsController } from './lease-inventory-items.controlle
     LeaseSignedScansAdminController,
     LeaseDocumentsController,
     LeaseInventoryItemsController,
+    LeaseReturnActController,
   ],
   providers: [
     LeasesService,
     LeaseSignedScansService,
     LeaseDocumentsService,
     LeaseInventoryItemsService,
+    LeaseReturnActService,
   ],
   exports: [LeasesService],
 })

@@ -1,6 +1,7 @@
 import { apiFetch } from './api';
 
 export type LeaseStatus = 'draft' | 'sent' | 'active' | 'terminated';
+export type InventoryReturnStatus = 'ok' | 'damaged' | 'missing';
 
 export interface LeaseParty {
   id: string;
@@ -23,6 +24,13 @@ export interface Lease {
   depositAmount: string;
   paymentDay: number;
   penaltyRatePercentPerDay: string;
+  depositReturnAmount: string | null;
+  returnActSubmittedAt: string | null;
+  returnActConfirmedAt: string | null;
+  returnActDamageTotal: string | null;
+  returnActDepositReturn: string | null;
+  returnActUncovered: string | null;
+  returnActUncoveredRemaining: string | null;
   property: { id: string; address: string };
   landlord: LeaseParty;
   tenant: LeaseParty | null;
@@ -144,6 +152,9 @@ export interface LeaseInventoryItem {
   brand: string | null;
   model: string | null;
   quantity: number;
+  returnStatus: InventoryReturnStatus | null;
+  returnNote: string | null;
+  damageAmount: string | null;
 }
 
 export interface InventoryItemInput {
@@ -187,6 +198,45 @@ export function deleteInventoryItem(
   return apiFetch(`/leases/${leaseId}/inventory-items/${itemId}`, {
     method: 'DELETE',
   });
+}
+
+export interface InventoryReturnInput {
+  returnStatus: InventoryReturnStatus;
+  returnNote?: string | null;
+  damageAmount?: number | null;
+}
+
+export function updateInventoryReturnState(
+  leaseId: string,
+  itemId: string,
+  input: InventoryReturnInput,
+): Promise<LeaseInventoryItem> {
+  return apiFetch<LeaseInventoryItem>(
+    `/leases/${leaseId}/inventory-items/${itemId}/return-state`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+}
+
+export function submitReturnAct(leaseId: string): Promise<Lease> {
+  return apiFetch<Lease>(`/leases/${leaseId}/return-act/submit`, {
+    method: 'POST',
+  });
+}
+
+export function confirmReturnAct(leaseId: string): Promise<Lease> {
+  return apiFetch<Lease>(`/leases/${leaseId}/return-act/confirm`, {
+    method: 'POST',
+  });
+}
+
+export function generateReturnAct(leaseId: string): Promise<LeaseDocument> {
+  return apiFetch<LeaseDocument>(`/leases/${leaseId}/document/return-act`, {
+    method: 'POST',
+  });
+}
+
+export function getReturnAct(leaseId: string): Promise<LeaseDocument> {
+  return apiFetch<LeaseDocument>(`/leases/${leaseId}/document/return-act`);
 }
 
 // Приложение №1 — акт приёма-передачи имущества (ADR-0018). Версионируется
@@ -234,4 +284,10 @@ export const STATUS_LABEL: Record<LeaseStatus, string> = {
   sent: 'Отправлен',
   active: 'Действует',
   terminated: 'Расторгнут',
+};
+
+export const RETURN_STATUS_LABEL: Record<InventoryReturnStatus, string> = {
+  ok: 'Норма',
+  damaged: 'Повреждено',
+  missing: 'Отсутствует',
 };

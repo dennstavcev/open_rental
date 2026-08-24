@@ -3,7 +3,16 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { BillPaymentStatus, BillStage } from '@prisma/client';
+import {
+  BillItemKind,
+  BillItemSource,
+  BillPaymentStatus,
+  BillStage,
+  LeaseStatus,
+  Prisma,
+  ServiceType,
+  SettlementPayer,
+} from '@prisma/client';
 import { BillingService } from './billing.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
@@ -25,6 +34,8 @@ function makeBill(overrides: Record<string, unknown> = {}) {
     penaltyRatePercentPerDay: 0.1,
     penaltyWaived: false,
     penaltyWaivedAmount: null,
+    readingsOverdueAlertedAt: null,
+    readingsMissingAlertedAt: null,
     lineItems: [{ amount: 50000 }],
     payment: null,
     paymentProof: null,
@@ -36,6 +47,7 @@ function makeBill(overrides: Record<string, unknown> = {}) {
       paymentDay: 20,
       rentAmount: 50000,
       penaltyRatePercentPerDay: 0.1,
+      status: LeaseStatus.active,
     },
     ...overrides,
   };
@@ -60,15 +72,29 @@ describe('BillingService', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
-        create: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        create: jest.fn().mockResolvedValue({ id: 'b-next' }),
       },
-      billLineItem: { create: jest.fn().mockResolvedValue({}) },
+      billLineItem: {
+        create: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       payment: { create: jest.fn().mockResolvedValue({}) },
       paymentProof: { upsert: jest.fn().mockResolvedValue({}) },
-      service: { findMany: jest.fn().mockResolvedValue([]) },
+      service: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      maintenanceRequest: { update: jest.fn() },
+      lease: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({}),
+      },
       // Гард показаний: по умолчанию счётчиков нет → финализация проходит.
       meter: { findMany: jest.fn().mockResolvedValue([]) },
-      meterReading: { findFirst: jest.fn().mockResolvedValue(null) },
+      meterReading: { findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     leases = { getForUser: jest.fn() };
@@ -115,8 +141,8 @@ describe('BillingService', () => {
     it('draft → final + создаёт черновик следующего периода', async () => {
       prisma.bill.findUnique.mockResolvedValue(makeBill());
       await service.finalize(LANDLORD, 'b1');
-      expect(prisma.bill.update).toHaveBeenCalledWith({
-        where: { id: 'b1' },
+      expect(prisma.bill.updateMany).toHaveBeenCalledWith({
+        where: { id: 'b1', stage: BillStage.draft },
         data: { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending },
       });
       expect(prisma.bill.create).toHaveBeenCalled(); // следующий черновик
@@ -134,11 +160,16 @@ describe('BillingService', () => {
     it('блокируется, если по счётчику нет показания за период', async () => {
       prisma.bill.findUnique.mockResolvedValue(makeBill());
       prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
-      prisma.meterReading.findFirst.mockResolvedValue(null); // показания нет
       await expect(service.finalize(LANDLORD, 'b1')).rejects.toBeInstanceOf(
         ConflictException,
       );
-      expect(prisma.bill.update).not.toHaveBeenCalled();
+      expect(prisma.bill.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'b1', stage: BillStage.draft },
+        data: {
+          stage: BillStage.final,
+          paymentStatus: BillPaymentStatus.pending,
+        },
+      });
     });
 
     it('отключённый счётчик не блокирует счёт', async () => {
@@ -152,13 +183,83 @@ describe('BillingService', () => {
             where.isActive ? [] : [{ id: 'm1', name: 'Электро' }],
           ),
       );
-      prisma.meterReading.findFirst.mockResolvedValue(null);
-
       await service.finalize(LANDLORD, 'b1');
-      expect(prisma.bill.update).toHaveBeenCalledWith({
-        where: { id: 'b1' },
+      expect(prisma.bill.updateMany).toHaveBeenCalledWith({
+        where: { id: 'b1', stage: BillStage.draft },
         data: { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending },
       });
+    });
+  });
+
+  describe('metersPendingForBill', () => {
+    it('возвращает активный счётчик без строки расхода', async () => {
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+
+      await expect(
+        service.metersPendingForBill({ id: 'b1', propertyId: 'p1' }),
+      ).resolves.toEqual([{ id: 'm1', name: 'Электро' }]);
+    });
+
+    it('не возвращает счётчик со строкой расхода этого счёта', async () => {
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockResolvedValue([{ sourceRefId: 'r1' }]);
+      prisma.meterReading.findMany.mockResolvedValue([{ meterId: 'm1' }]);
+
+      await expect(
+        service.metersPendingForBill({ id: 'b1', propertyId: 'p1' }),
+      ).resolves.toEqual([]);
+    });
+
+    it('чужой kind/source и null sourceRefId не могут закрыть обязанность', async () => {
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockResolvedValue([{ sourceRefId: null }]);
+
+      await expect(
+        service.metersPendingForBill({ id: 'b1', propertyId: 'p1' }),
+      ).resolves.toEqual([{ id: 'm1', name: 'Электро' }]);
+
+      expect(prisma.billLineItem.findMany).toHaveBeenCalledWith({
+        where: {
+          billId: 'b1',
+          kind: BillItemKind.utility,
+          source: BillItemSource.meter_reading,
+          sourceRefId: { not: null },
+        },
+        select: { sourceRefId: true },
+      });
+    });
+
+    it('одно показание закрывает только счёт со своей строкой, без каскада', async () => {
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockImplementation(
+        ({ where }: { where: { billId: string } }) =>
+          Promise.resolve(
+            where.billId === 'bill-a' ? [{ sourceRefId: 'r1' }] : [],
+          ),
+      );
+      prisma.meterReading.findMany.mockImplementation(
+        ({ where }: { where: { id: { in: string[] } } }) =>
+          Promise.resolve(where.id.in.includes('r1') ? [{ meterId: 'm1' }] : []),
+      );
+
+      await expect(
+        service.metersPendingForBill({ id: 'bill-a', propertyId: 'p1' }),
+      ).resolves.toEqual([]);
+      await expect(
+        service.metersPendingForBill({ id: 'bill-b', propertyId: 'p1' }),
+      ).resolves.toEqual([{ id: 'm1', name: 'Электро' }]);
+    });
+
+    it('строка чужого счёта по тому же счётчику обязанность не закрывает', async () => {
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.metersPendingForBill({ id: 'our-bill', propertyId: 'p1' }),
+      ).resolves.toEqual([{ id: 'm1', name: 'Электро' }]);
+      expect(prisma.billLineItem.findMany.mock.calls[0][0].where.billId).toBe(
+        'our-bill',
+      );
     });
   });
 
@@ -167,8 +268,8 @@ describe('BillingService', () => {
       prisma.bill.findMany.mockResolvedValue([makeBill()]);
       const res = await service.runPeriodTransition(new Date());
       expect(res).toEqual({ finalized: 1, skipped: 0 });
-      expect(prisma.bill.update).toHaveBeenCalledWith({
-        where: { id: 'b1' },
+      expect(prisma.bill.updateMany).toHaveBeenCalledWith({
+        where: { id: 'b1', stage: BillStage.draft },
         data: { stage: BillStage.final, paymentStatus: BillPaymentStatus.pending },
       });
       expect(prisma.bill.create).toHaveBeenCalled();
@@ -177,10 +278,15 @@ describe('BillingService', () => {
     it('пропускает черновик без показаний, не финализирует', async () => {
       prisma.bill.findMany.mockResolvedValue([makeBill()]);
       prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
-      prisma.meterReading.findFirst.mockResolvedValue(null);
       const res = await service.runPeriodTransition(new Date());
       expect(res).toEqual({ finalized: 0, skipped: 1 });
-      expect(prisma.bill.update).not.toHaveBeenCalled();
+      expect(prisma.bill.updateMany).not.toHaveBeenCalledWith({
+        where: { id: 'b1', stage: BillStage.draft },
+        data: {
+          stage: BillStage.final,
+          paymentStatus: BillPaymentStatus.pending,
+        },
+      });
       // Алерт обеим сторонам.
       expect(notifications.notify).toHaveBeenCalledWith(
         LANDLORD,
@@ -197,26 +303,84 @@ describe('BillingService', () => {
       const res = await service.runPeriodTransition(new Date());
       expect(res).toEqual({ finalized: 0, skipped: 0 });
     });
+
+    it('позднее показание со строкой в зависшем счёте позволяет финализацию', async () => {
+      prisma.bill.findMany.mockResolvedValue([makeBill()]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockResolvedValue([{ sourceRefId: 'late-r1' }]);
+      prisma.meterReading.findMany.mockResolvedValue([{ meterId: 'm1' }]);
+
+      await expect(service.runPeriodTransition(new Date())).resolves.toEqual({
+        finalized: 1,
+        skipped: 0,
+      });
+      expect(prisma.bill.updateMany).toHaveBeenCalled();
+    });
+
+    it('пропускает черновик неактивного договора без алерта', async () => {
+      prisma.bill.findMany.mockResolvedValue([
+        makeBill({
+          lease: { ...makeBill().lease, status: LeaseStatus.terminated },
+        }),
+      ]);
+
+      await expect(service.runPeriodTransition(new Date())).resolves.toEqual({
+        finalized: 0,
+        skipped: 0,
+      });
+      expect(notifications.notify).not.toHaveBeenCalled();
+      expect(prisma.bill.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('ошибка БД при проверке обязанности пробрасывается без алерта и отметки', async () => {
+      prisma.bill.findMany.mockResolvedValue([makeBill()]);
+      prisma.meter.findMany.mockRejectedValue(new Error('database unavailable'));
+
+      await expect(service.runPeriodTransition(new Date())).rejects.toThrow(
+        'database unavailable',
+      );
+      expect(prisma.bill.updateMany).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('два прогона создают readings_missing только один раз', async () => {
+      prisma.bill.findMany.mockResolvedValue([makeBill()]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.bill.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+
+      await service.runPeriodTransition(new Date());
+      await service.runPeriodTransition(new Date());
+
+      expect(notifications.notify).toHaveBeenCalledTimes(2);
+      expect(prisma.bill.updateMany).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('runReadingReminders', () => {
-    function draftDueIn(days: number) {
-      const now = Date.now();
+    const now = new Date(Date.UTC(2026, 7, 21, 9));
+
+    function draftDueIn(daysUntilPayment: number) {
       return {
         ...makeBill(),
         stage: BillStage.draft,
-        periodStart: new Date(now - 20 * 86400000),
-        periodEnd: new Date(now + days * 86400000),
-        dueDate: new Date(now + days * 86400000),
-        lease: { ...makeBill().lease, status: 'active', tenantId: TENANT },
+        periodStart: new Date(now.getTime() - 20 * 86400000),
+        periodEnd: new Date(now.getTime() + daysUntilPayment * 86400000),
+        dueDate: new Date(now.getTime() + daysUntilPayment * 86400000),
+        lease: {
+          ...makeBill().lease,
+          status: LeaseStatus.active,
+          tenantId: TENANT,
+          property: { address: 'ул. Тестовая, 1' },
+        },
       };
     }
 
-    it('за 3 дня до оплаты и нет показаний → напоминание арендатору', async () => {
-      prisma.bill.findMany.mockResolvedValue([draftDueIn(3)]);
+    it('за 3 дня до срока показаний (8 дней до оплаты) → напоминание арендатору', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(8)]);
       prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
-      prisma.meterReading.findFirst.mockResolvedValue(null);
-      const res = await service.runReadingReminders(new Date());
+      const res = await service.runReadingReminders(now);
       expect(res.reminded).toBe(1);
       expect(notifications.notify).toHaveBeenCalledWith(
         TENANT,
@@ -224,18 +388,101 @@ describe('BillingService', () => {
       );
     });
 
-    it('за 5 дней (не порог) → не напоминает', async () => {
-      prisma.bill.findMany.mockResolvedValue([draftDueIn(5)]);
-      const res = await service.runReadingReminders(new Date());
+    it('за 5 дней до срока (10 дней до оплаты, не порог) → не напоминает', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(10)]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      const res = await service.runReadingReminders(now);
       expect(res.reminded).toBe(0);
     });
 
-    it('показания уже поданы → не напоминает', async () => {
-      prisma.bill.findMany.mockResolvedValue([draftDueIn(1)]);
+    it('за 1 день до срока (6 дней до оплаты), но обязанность закрыта → не напоминает', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(6)]);
       prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
-      prisma.meterReading.findFirst.mockResolvedValue({ id: 'r1' });
-      const res = await service.runReadingReminders(new Date());
+      prisma.billLineItem.findMany.mockResolvedValue([{ sourceRefId: 'r1' }]);
+      prisma.meterReading.findMany.mockResolvedValue([{ meterId: 'm1' }]);
+      const res = await service.runReadingReminders(now);
       expect(res.reminded).toBe(0);
+    });
+
+    it('после дедлайна уведомляет обе стороны разными текстами и ставит отметку', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(2)]); // дедлайн был 3 дня назад
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+
+      await expect(service.runReadingReminders(now)).resolves.toEqual({
+        reminded: 0,
+        overdueNotified: 1,
+      });
+      expect(prisma.bill.updateMany).toHaveBeenCalledWith({
+        where: { id: 'b1', readingsOverdueAlertedAt: null },
+        data: { readingsOverdueAlertedAt: now },
+      });
+      expect(notifications.notify).toHaveBeenCalledWith(
+        TENANT,
+        expect.objectContaining({
+          type: 'readings_overdue',
+          title: 'Показания просрочены',
+          body: expect.stringContaining('Подайте показания'),
+        }),
+      );
+      expect(notifications.notify).toHaveBeenCalledWith(
+        LANDLORD,
+        expect.objectContaining({
+          type: 'readings_overdue',
+          title: 'Арендатор не подал показания',
+          body: expect.stringContaining('нельзя сформировать'),
+        }),
+      );
+    });
+
+    it('повторный прогон не дублирует readings_overdue', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(2)]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.bill.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.runReadingReminders(now)).resolves.toEqual({
+        reminded: 0,
+        overdueNotified: 0,
+      });
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('пропущенный день не теряет просрочку: через 3 суток алерт уходит', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(2)]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+
+      const result = await service.runReadingReminders(now);
+
+      expect(result.overdueNotified).toBe(1);
+      expect(notifications.notify).toHaveBeenCalledTimes(2);
+    });
+
+    it('не шлёт просрочку при закрытой обязанности', async () => {
+      prisma.bill.findMany.mockResolvedValue([draftDueIn(2)]);
+      prisma.meter.findMany.mockResolvedValue([{ id: 'm1', name: 'Электро' }]);
+      prisma.billLineItem.findMany.mockResolvedValue([{ sourceRefId: 'r1' }]);
+      prisma.meterReading.findMany.mockResolvedValue([{ meterId: 'm1' }]);
+
+      await service.runReadingReminders(now);
+
+      expect(prisma.bill.updateMany).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { status: LeaseStatus.terminated, tenantId: TENANT },
+      { status: LeaseStatus.active, tenantId: null },
+    ])('не шлёт просрочку для договора без живой обязанности', async (lease) => {
+      prisma.bill.findMany.mockResolvedValue([
+        {
+          ...draftDueIn(2),
+          lease: { ...draftDueIn(2).lease, ...lease },
+        },
+      ]);
+
+      await service.runReadingReminders(now);
+
+      expect(prisma.meter.findMany).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 
@@ -249,7 +496,10 @@ describe('BillingService', () => {
         lineItems: [{ id: 'li-rent', kind: 'rent', amount: 50000 }],
       };
       prisma.bill.findFirst.mockResolvedValue(draft);
-      prisma.billLineItem = { update: jest.fn().mockResolvedValue({}) };
+      prisma.billLineItem.update = jest.fn().mockResolvedValue({});
+      prisma.billLineItem.findMany.mockResolvedValue([
+        { kind: BillItemKind.rent, amount: 16666.67 },
+      ]);
 
       await service.applyTermination(
         makeBill().lease as any,
@@ -259,7 +509,7 @@ describe('BillingService', () => {
       const prorated = prisma.billLineItem.update.mock.calls[0][0].data.amount;
       expect(prorated).toBeCloseTo(16666.67, 1);
       // Финализация без следующего черновика.
-      expect(prisma.bill.update).toHaveBeenCalled();
+      expect(prisma.bill.updateMany).toHaveBeenCalled();
       expect(prisma.bill.create).not.toHaveBeenCalled();
     });
   });
@@ -328,6 +578,24 @@ describe('BillingService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
       expect(storage.put).not.toHaveBeenCalled();
     });
+
+    it.each([0, -100])(
+      'по счёту с итогом %s заявить оплату нельзя и чек не сохраняется',
+      async (amount) => {
+        prisma.bill.findUnique.mockResolvedValue(
+          makeBill({
+            stage: BillStage.final,
+            paymentStatus: BillPaymentStatus.pending,
+            lineItems: [{ amount }],
+          }),
+        );
+
+        await expect(service.claimPaid(TENANT, 'b1', proof)).rejects.toThrow(
+          'По этому счёту нечего оплачивать',
+        );
+        expect(storage.put).not.toHaveBeenCalled();
+      },
+    );
 
     it('landlord не может заявлять оплату → Forbidden', async () => {
       prisma.bill.findUnique.mockResolvedValue(
@@ -441,6 +709,357 @@ describe('BillingService', () => {
       await expect(service.waivePenalty(LANDLORD, 'b1')).rejects.toBeInstanceOf(
         ConflictException,
       );
+    });
+  });
+
+  describe('разовые услуги (ADR-0025)', () => {
+    function oneTimeService(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 's1',
+        propertyId: 'p1',
+        name: 'Заявка: Ремонт',
+        price: 100,
+        serviceType: ServiceType.one_time,
+        description: null,
+        payer: SettlementPayer.tenant,
+        sourceRequestId: 'req1',
+        billedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        ...overrides,
+      };
+    }
+
+    it.each([
+      [SettlementPayer.tenant, 100, 100],
+      [SettlementPayer.split, 100, 50],
+      [SettlementPayer.owner, 100, -100],
+    ])('payer=%s выставляет сумму с нужным знаком', async (payer, price, expected) => {
+      const item = oneTimeService({ payer, price });
+      prisma.service.findUnique.mockResolvedValue(item);
+
+      const result = await (service as any).billServiceIntoBill(
+        prisma,
+        'b1',
+        item,
+      );
+
+      expect(result).toEqual({ billed: true, amount: expected });
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b1',
+          kind: BillItemKind.service,
+          source: BillItemSource.service,
+          amount: expected,
+          sourceRefId: 's1',
+        }),
+      });
+    });
+
+    it.each([
+      [0.01, 0.01],
+      [10.01, 5.01],
+    ])('split от %s отдаёт арендатору %s', async (price, expected) => {
+      const item = oneTimeService({ payer: SettlementPayer.split, price });
+      prisma.service.findUnique.mockResolvedValue(item);
+
+      await expect(
+        (service as any).billServiceIntoBill(prisma, 'b1', item),
+      ).resolves.toEqual({ billed: true, amount: expected });
+    });
+
+    it('повторный захват billedAt не создаёт вторую строку', async () => {
+      const item = oneTimeService();
+      prisma.service.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        (service as any).billServiceIntoBill(prisma, 'b1', item),
+      ).resolves.toEqual({ billed: false, amount: 0 });
+      expect(prisma.service.findUnique).not.toHaveBeenCalled();
+      expect(prisma.billLineItem.create).not.toHaveBeenCalled();
+    });
+
+    it('нулевая сумма ставит billedAt без строки', async () => {
+      const item = oneTimeService({ price: 0 });
+      prisma.service.findUnique.mockResolvedValue(item);
+
+      await expect(
+        (service as any).billServiceIntoBill(prisma, 'b1', item),
+      ).resolves.toEqual({ billed: true, amount: 0 });
+      expect(prisma.service.updateMany).toHaveBeenCalledWith({
+        where: { id: 's1', billedAt: null },
+        data: { billedAt: expect.any(Date) },
+      });
+      expect(prisma.billLineItem.create).not.toHaveBeenCalled();
+    });
+
+    it('после захвата перечитывает изменённую цену', async () => {
+      const stale = oneTimeService({ price: 100 });
+      prisma.service.findUnique.mockResolvedValue(
+        oneTimeService({ price: 250 }),
+      );
+
+      await (service as any).billServiceIntoBill(prisma, 'b1', stale);
+
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ amount: 250 }),
+      });
+    });
+
+    it('resolved сохраняет статус, строку и billedAt одной транзакцией', async () => {
+      const request = {
+        id: 'req1',
+        category: 'Ремонт',
+        status: 'in_progress',
+      };
+      const item = oneTimeService();
+      prisma.maintenanceRequest.update.mockResolvedValue({
+        ...request,
+        status: 'resolved',
+      });
+      prisma.bill.findFirst.mockResolvedValue({ id: 'b1' });
+      prisma.service.findUnique.mockResolvedValue(item);
+
+      const result = await service.resolveRequestWithService(
+        makeBill().lease as any,
+        request as any,
+        item as any,
+      );
+
+      expect(result.status).toBe('resolved');
+      expect(prisma.maintenanceRequest.update).toHaveBeenCalled();
+      expect(prisma.service.updateMany).toHaveBeenCalled();
+      expect(prisma.billLineItem.create).toHaveBeenCalled();
+    });
+
+    it('сбой уведомления не откатывает выставление', async () => {
+      const request = { id: 'req1', category: 'Ремонт' };
+      const item = oneTimeService();
+      prisma.maintenanceRequest.update.mockResolvedValue(request);
+      prisma.bill.findFirst.mockResolvedValue({ id: 'b1' });
+      prisma.service.findUnique.mockResolvedValue(item);
+      notifications.notify.mockRejectedValue(new Error('channel down'));
+
+      await expect(
+        service.resolveRequestWithService(
+          makeBill().lease as any,
+          request as any,
+          item as any,
+        ),
+      ).resolves.toEqual(request);
+      expect(prisma.billLineItem.create).toHaveBeenCalled();
+      expect(notifications.notify).toHaveBeenCalledTimes(2);
+    });
+
+    it('новый черновик выставляет ручные one_time и не берёт услуги заявок', async () => {
+      const manual = oneTimeService({
+        id: 'manual1',
+        name: 'Разовый клининг',
+        sourceRequestId: null,
+      });
+      prisma.service.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([manual]);
+      prisma.service.findUnique.mockResolvedValue(manual);
+      prisma.bill.create.mockResolvedValue({ id: 'b-new' });
+
+      await (service as any).createDraftForPeriod(
+        prisma,
+        makeBill().lease,
+        {
+          periodStart: makeBill().periodStart,
+          periodEnd: makeBill().periodEnd,
+          dueDate: makeBill().dueDate,
+        },
+      );
+
+      expect(prisma.service.findMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          propertyId: 'p1',
+          serviceType: ServiceType.one_time,
+          billedAt: null,
+          sourceRequestId: null,
+        },
+      });
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b-new',
+          sourceRefId: 'manual1',
+        }),
+      });
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('перенос отрицательного итога (ADR-0025)', () => {
+    it('доводит текущий счёт до нуля и связывает перенос со следующим', async () => {
+      prisma.billLineItem.findMany.mockResolvedValue([{ amount: -150 }]);
+      prisma.bill.create.mockResolvedValue({ id: 'b-next' });
+
+      await (service as any).finalizeBill(makeBill());
+
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b1',
+          amount: 150,
+          sourceRefId: 'b-next',
+        }),
+      });
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b-next',
+          amount: -150,
+          sourceRefId: 'b1',
+        }),
+      });
+    });
+
+    it('повторяет перенос через несколько отрицательных счетов', async () => {
+      prisma.billLineItem.findMany
+        .mockResolvedValueOnce([{ amount: -150 }])
+        .mockResolvedValueOnce([{ amount: -40 }]);
+      prisma.bill.create
+        .mockResolvedValueOnce({ id: 'b-next' })
+        .mockResolvedValueOnce({ id: 'b-third' });
+
+      await (service as any).finalizeBill(makeBill());
+      await (service as any).finalizeBill(
+        makeBill({ id: 'b-next', periodStart: makeBill().periodEnd }),
+      );
+
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b-third',
+          amount: -40,
+          sourceRefId: 'b-next',
+        }),
+      });
+    });
+
+    it.each([
+      [null, 150],
+      [500, 650],
+    ])('при расторжении депозит %s увеличивается до %s', async (deposit, expected) => {
+      prisma.billLineItem.findMany.mockResolvedValue([{ amount: -150 }]);
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        depositReturnAmount: deposit,
+      });
+
+      await (service as any).finalizeBill(makeBill(), { createNext: false });
+
+      expect(prisma.lease.update).toHaveBeenCalledWith({
+        where: { id: 'l1' },
+        data: { depositReturnAmount: expected },
+      });
+      expect(prisma.billLineItem.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          billId: 'b1',
+          amount: 150,
+          title: 'Перенос в возврат депозита',
+        }),
+      });
+    });
+
+    it('при расторжении считает перенос по перечитанной пропорциональной аренде', async () => {
+      const draft = makeBill({
+        lineItems: [
+          { id: 'rent1', kind: BillItemKind.rent, amount: 1000, title: 'Аренда' },
+          { id: 'deduction1', kind: BillItemKind.service, amount: -600 },
+        ],
+      });
+      prisma.bill.findFirst.mockResolvedValue(draft);
+      prisma.billLineItem.update = jest.fn().mockResolvedValue({});
+      // После пропорции аренда стала 100, поэтому остаток вычета равен 500.
+      prisma.billLineItem.findMany.mockResolvedValue([
+        { amount: 100 },
+        { amount: -600 },
+      ]);
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        depositReturnAmount: 200,
+      });
+
+      await service.applyTermination(
+        makeBill().lease as any,
+        new Date(Date.UTC(2026, 8, 21, 12)),
+      );
+
+      expect(prisma.lease.update).toHaveBeenCalledWith({
+        where: { id: 'l1' },
+        data: { depositReturnAmount: 700 },
+      });
+    });
+
+    it('проигравший захват счёта не создаёт вторую пару переноса', async () => {
+      prisma.bill.updateMany.mockResolvedValue({ count: 0 });
+
+      await (service as any).finalizeBill(makeBill());
+
+      expect(prisma.billLineItem.findMany).not.toHaveBeenCalled();
+      expect(prisma.bill.create).not.toHaveBeenCalled();
+      expect(prisma.billLineItem.create).not.toHaveBeenCalled();
+    });
+
+    it('первым действием транзакции блокирует строку договора', async () => {
+      await (service as any).finalizeBill(makeBill());
+
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.bill.updateMany.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('сначала гасит непокрытый ущерб и не меняет снимок', async () => {
+      prisma.billLineItem.findMany.mockResolvedValue([{ amount: -5000 }]);
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        depositReturnAmount: new Prisma.Decimal(1000),
+        returnActUncoveredRemaining: new Prisma.Decimal(15_000),
+        returnActDamageTotal: new Prisma.Decimal(25_000),
+        returnActDepositReturn: new Prisma.Decimal(0),
+        returnActUncovered: new Prisma.Decimal(15_000),
+      });
+
+      await (service as any).finalizeBill(makeBill(), { createNext: false });
+
+      const data = prisma.lease.update.mock.calls[0][0].data;
+      expect(data.depositReturnAmount).toBe(1000);
+      expect(data.returnActUncoveredRemaining.toString()).toBe('10000');
+      expect(data).not.toHaveProperty('returnActDamageTotal');
+      expect(data).not.toHaveProperty('returnActDepositReturn');
+      expect(data).not.toHaveProperty('returnActUncovered');
+    });
+
+    it('остаток переноса после ущерба увеличивает возврат депозита', async () => {
+      prisma.billLineItem.findMany.mockResolvedValue([{ amount: -5000 }]);
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        depositReturnAmount: new Prisma.Decimal(1000),
+        returnActUncoveredRemaining: new Prisma.Decimal(3000),
+      });
+
+      await (service as any).finalizeBill(makeBill(), { createNext: false });
+
+      const data = prisma.lease.update.mock.calls[0][0].data;
+      expect(data.depositReturnAmount).toBe(3000);
+      expect(data.returnActUncoveredRemaining.toString()).toBe('0');
+    });
+
+    it('до подтверждения акта перенос целиком увеличивает возврат', async () => {
+      prisma.billLineItem.findMany.mockResolvedValue([{ amount: -5000 }]);
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        depositReturnAmount: new Prisma.Decimal(1000),
+        returnActUncoveredRemaining: null,
+      });
+
+      await (service as any).finalizeBill(makeBill(), { createNext: false });
+
+      expect(prisma.lease.update).toHaveBeenCalledWith({
+        where: { id: 'l1' },
+        data: { depositReturnAmount: 6000 },
+      });
     });
   });
 });

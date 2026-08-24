@@ -70,4 +70,30 @@ export class LeaseDocumentsController {
     const doc = await this.documents.getLatestHandoverAct(user.id, leaseId);
     return doc.content;
   }
+
+  @Post('return-act')
+  generateReturnAct(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<LeaseDocument> {
+    return this.documents.generateReturnAct(user.id, leaseId);
+  }
+
+  @Get('return-act')
+  getLatestReturnAct(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<LeaseDocument> {
+    return this.documents.getLatestReturnAct(user.id, leaseId);
+  }
+
+  @Get('return-act/html')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  async returnActHtml(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('leaseId') leaseId: string,
+  ): Promise<string> {
+    const doc = await this.documents.getLatestReturnAct(user.id, leaseId);
+    return doc.content;
+  }
 }
