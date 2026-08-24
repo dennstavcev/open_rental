@@ -12,6 +12,11 @@ export function toNumber(value: unknown): number {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+// Показания нужны раньше самой оплаты: арендодателю нужно окно, чтобы
+// финализировать счёт, иначе арендатор физически не может заплатить
+// вовремя (ADR-0024).
+export const READINGS_DUE_DAYS_BEFORE_PAYMENT = 5;
+
 // 12:00 UTC указанного дня. Полная привязка к Property.timezone —
 // отдельный инкремент с планировщиком (см. docs/CHANGELOG.md); здесь
 // детерминированный UTC-расчёт для ленивых пеней и границ периода.
@@ -56,6 +61,54 @@ export function nextPeriod(prevPeriodEnd: Date, paymentDay: number): Period {
     paymentDay,
   );
   return { periodStart: prevPeriodEnd, periodEnd, dueDate: periodEnd };
+}
+
+export function computeReadingsDueDate(periodEnd: Date): Date {
+  const result = new Date(periodEnd);
+  result.setUTCDate(
+    result.getUTCDate() - READINGS_DUE_DAYS_BEFORE_PAYMENT,
+  );
+  return result;
+}
+
+// Календарных суток от now до target по UTC; отрицательное — target в
+// прошлом. Час запуска планировщика на результат не влияет.
+export function calendarDaysUntil(target: Date, now: Date): number {
+  const targetDay = Date.UTC(
+    target.getUTCFullYear(),
+    target.getUTCMonth(),
+    target.getUTCDate(),
+  );
+  const nowDay = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+  return Math.round((targetDay - nowDay) / MS_PER_DAY);
+}
+
+export type ReadingsStatus =
+  | 'submitted'
+  | 'due'
+  | 'overdue'
+  | 'not_required';
+
+export function computeReadingsStatus(input: {
+  meterActive: boolean;
+  leaseActive: boolean;
+  submitted: boolean;
+  readingsDueDate: Date;
+  now: Date;
+}): ReadingsStatus {
+  if (!input.leaseActive || !input.meterActive) {
+    return 'not_required';
+  }
+  if (input.submitted) {
+    return 'submitted';
+  }
+  return calendarDaysUntil(input.readingsDueDate, input.now) >= 0
+    ? 'due'
+    : 'overdue';
 }
 
 export function billTotal(lineItems: Array<{ amount: unknown }>): number {

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -22,7 +23,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import {
+  NotificationsService,
+  NotifyInput,
+} from '../notifications/notifications.service';
 import {
   STORAGE_PROVIDER,
   StorageProvider,
@@ -30,8 +34,10 @@ import {
 import { AddLineItemDto } from './dto/add-line-item.dto';
 import {
   billTotal,
+  calendarDaysUntil,
   computeAccruedPenalty,
   computePeriod,
+  computeReadingsDueDate,
   daysBetween,
   isOverdue,
   nextPeriod,
@@ -68,6 +74,8 @@ export interface BillView {
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
@@ -139,9 +147,14 @@ export class BillingService {
     let finalized = 0;
     let skipped = 0;
     for (const bill of dueDrafts) {
-      try {
-        await this.assertReadingsSubmitted(bill);
-      } catch {
+      if (bill.lease.status !== LeaseStatus.active) {
+        continue;
+      }
+      const pending = await this.metersPendingForBill({
+        id: bill.id,
+        propertyId: bill.lease.propertyId,
+      });
+      if (pending.length) {
         // Показания не поданы — не финализируем, алерт обеим сторонам
         // («расчёт не готов», а не тихое закрытие — MVP_SCOPE).
         await this.alertReadingsMissing(bill);
@@ -158,11 +171,18 @@ export class BillingService {
   private async alertReadingsMissing(
     bill: BillWithItems & { lease: Lease },
   ): Promise<void> {
+    const { count } = await this.prisma.bill.updateMany({
+      where: { id: bill.id, readingsMissingAlertedAt: null },
+      data: { readingsMissingAlertedAt: new Date() },
+    });
+    if (count !== 1) {
+      return;
+    }
     const recipients = [bill.lease.landlordId, bill.lease.tenantId].filter(
       (id): id is string => !!id,
     );
     for (const userId of recipients) {
-      await this.notifications.notify(userId, {
+      await this.notifyBestEffort(userId, {
         type: 'readings_missing',
         title: 'Расчёт за период не готов',
         body: 'Не поданы показания счётчиков — счёт не может быть сформирован.',
@@ -367,15 +387,19 @@ export class BillingService {
   async addUtilityLine(
     lease: Lease,
     data: { title: string; amount: number; sourceRefId: string },
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
-    await this.ensureCurrentDraft(lease);
-    const draft = await this.prisma.bill.findFirst({
+    if (tx === this.prisma) {
+      await this.ensureCurrentDraft(lease);
+    }
+    const draft = await tx.bill.findFirst({
       where: { leaseId: lease.id, stage: BillStage.draft },
+      orderBy: { periodStart: 'asc' },
     });
     if (!draft) {
       throw new NotFoundException('Черновик счёта не найден');
     }
-    await this.prisma.billLineItem.create({
+    await tx.billLineItem.create({
       data: {
         billId: draft.id,
         kind: BillItemKind.utility,
@@ -487,18 +511,19 @@ export class BillingService {
     };
   }
 
-  // Гард: счёт не финализируется, если по объекту есть счётчик без показания
-  // в текущем периоде (docs/MVP_SCOPE.md, «Важное исключение»). Биллинг
+  // Гард: счёт не финализируется, если по объекту есть счётчик без строки
+  // расхода в этом счёте (ADR-0024). Биллинг
   // читает таблицы счётчиков напрямую, чтобы не вводить цикл модулей
   // meters↔billing (показания зависят от billing, не наоборот).
   private async assertReadingsSubmitted(
     bill: BillWithItems & { lease: Lease },
   ): Promise<void> {
-    const missing = await this.firstMeterWithoutReading(
-      bill.lease.propertyId,
-      bill.periodStart,
-      bill.periodEnd,
-    );
+    const missing = (
+      await this.metersPendingForBill({
+        id: bill.id,
+        propertyId: bill.lease.propertyId,
+      })
+    )[0];
     if (missing) {
       throw new ConflictException(
         `Не поданы показания счётчика «${missing.name}» за период`,
@@ -506,43 +531,58 @@ export class BillingService {
     }
   }
 
-  private async firstMeterWithoutReading(
-    propertyId: string,
-    periodStart: Date,
-    periodEnd: Date,
-  ): Promise<{ id: string; name: string } | null> {
+  // Какие активные счётчики объекта ещё не закрыты строкой расхода в этом
+  // счёте (ADR-0024, §3.0).
+  async metersPendingForBill(bill: {
+    id: string;
+    propertyId: string;
+  }): Promise<{ id: string; name: string }[]> {
     // Только активные счётчики: отключённый (ADR-0014) не принимает новые
     // показания в MeterReadingsService.create — если бы он попадал сюда,
     // счёт по объекту нельзя было бы финализировать никогда.
     const meters = await this.prisma.meter.findMany({
-      where: { propertyId, isActive: true },
+      where: { propertyId: bill.propertyId, isActive: true },
       select: { id: true, name: true },
     });
-    for (const meter of meters) {
-      const reading = await this.prisma.meterReading.findFirst({
-        where: {
-          meterId: meter.id,
-          readingDate: { gte: periodStart, lt: periodEnd },
+    const lineItems = await this.prisma.billLineItem.findMany({
+      where: {
+        billId: bill.id,
+        kind: BillItemKind.utility,
+        source: BillItemSource.meter_reading,
+        sourceRefId: { not: null },
+      },
+      select: { sourceRefId: true },
+    });
+    const readings = await this.prisma.meterReading.findMany({
+      where: {
+        id: {
+          in: lineItems
+            .map((item) => item.sourceRefId)
+            .filter((id): id is string => id !== null),
         },
-      });
-      if (!reading) {
-        return meter;
-      }
-    }
-    return null;
+      },
+      select: { meterId: true },
+    });
+    const submittedMeterIds = new Set(readings.map((reading) => reading.meterId));
+    return meters.filter((meter) => !submittedMeterIds.has(meter.id));
   }
 
-  // Каскад напоминаний: за 3 и за 1 день до оплаты — арендатору напомнить
+  // Каскад напоминаний: за 3 и за 1 день до срока — арендатору напомнить
   // подать показания, если они ещё не поданы (docs/MVP_SCOPE.md,
   // «Напоминания по периоду»). Ежедневный скан (ADR-0013).
   async runReadingReminders(
     now: Date = new Date(),
-  ): Promise<{ reminded: number }> {
+  ): Promise<{ reminded: number; overdueNotified: number }> {
     const drafts = await this.prisma.bill.findMany({
       where: { stage: BillStage.draft },
-      include: { lease: true },
+      include: {
+        lease: {
+          include: { property: { select: { address: true } } },
+        },
+      },
     });
     let reminded = 0;
+    let overdueNotified = 0;
     for (const bill of drafts) {
       if (
         bill.lease.status !== LeaseStatus.active ||
@@ -550,28 +590,62 @@ export class BillingService {
       ) {
         continue;
       }
-      const daysUntilDue = Math.ceil(
-        (bill.dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
-      );
-      if (daysUntilDue !== 3 && daysUntilDue !== 1) {
-        continue;
-      }
-      const missing = await this.firstMeterWithoutReading(
-        bill.lease.propertyId,
-        bill.periodStart,
-        bill.periodEnd,
-      );
-      if (!missing) {
-        continue;
-      }
-      await this.notifications.notify(bill.lease.tenantId, {
-        type: 'readings_reminder',
-        title: 'Подайте показания счётчиков',
-        body: `До даты оплаты ${daysUntilDue} дн. — подайте показания счётчиков.`,
+      const pending = await this.metersPendingForBill({
+        id: bill.id,
+        propertyId: bill.lease.propertyId,
       });
-      reminded += 1;
+      if (!pending.length) {
+        continue;
+      }
+      const daysUntil = calendarDaysUntil(
+        computeReadingsDueDate(bill.periodEnd),
+        now,
+      );
+      if (daysUntil === 3 || daysUntil === 1) {
+        await this.notifyBestEffort(bill.lease.tenantId, {
+          type: 'readings_reminder',
+          title: 'Подайте показания счётчиков',
+          body: `До срока подачи показаний ${daysUntil} дн. — подайте показания счётчиков.`,
+        });
+        reminded += 1;
+        continue;
+      }
+      if (daysUntil >= 0) {
+        continue;
+      }
+      const { count } = await this.prisma.bill.updateMany({
+        where: { id: bill.id, readingsOverdueAlertedAt: null },
+        data: { readingsOverdueAlertedAt: now },
+      });
+      if (count !== 1) {
+        continue;
+      }
+      overdueNotified += 1;
+      await this.notifyBestEffort(bill.lease.tenantId, {
+        type: 'readings_overdue',
+        title: 'Показания просрочены',
+        body: `Срок подачи показаний по объекту «${bill.lease.property.address}» истёк. Подайте показания — без них счёт за период не сформируется.`,
+      });
+      await this.notifyBestEffort(bill.lease.landlordId, {
+        type: 'readings_overdue',
+        title: 'Арендатор не подал показания',
+        body: `По объекту «${bill.lease.property.address}» истёк срок подачи показаний. Счёт за период нельзя сформировать, пока показаний нет.`,
+      });
     }
-    return { reminded };
+    return { reminded, overdueNotified };
+  }
+
+  private async notifyBestEffort(
+    userId: string,
+    input: NotifyInput,
+  ): Promise<void> {
+    try {
+      await this.notifications.notify(userId, input);
+    } catch (error) {
+      this.logger.warn(
+        `Не удалось создать уведомление «${input.type}» для ${userId}: ${String(error)}`,
+      );
+    }
   }
 
   private async reload(billId: string): Promise<BillView> {

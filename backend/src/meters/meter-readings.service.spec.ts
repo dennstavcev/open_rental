@@ -20,17 +20,21 @@ describe('MeterReadingsService', () => {
   let prisma: any;
   let storage: jest.Mocked<StorageProvider>;
   let ocr: jest.Mocked<MeterOcrProvider>;
-  let billing: { addUtilityLine: jest.Mock };
+  let billing: { ensureCurrentDraft: jest.Mock; addUtilityLine: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       meter: { findUnique: jest.fn() },
       lease: { findFirst: jest.fn() },
       meterReading: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
+      $transaction: jest.fn((callback) => callback(prisma)),
     };
     storage = { put: jest.fn(), get: jest.fn(), delete: jest.fn(), getUrl: jest.fn() };
     ocr = { recognize: jest.fn().mockResolvedValue(null) };
-    billing = { addUtilityLine: jest.fn() };
+    billing = {
+      ensureCurrentDraft: jest.fn().mockResolvedValue(undefined),
+      addUtilityLine: jest.fn(),
+    };
     service = new MeterReadingsService(
       prisma as unknown as PrismaService,
       storage,
@@ -114,7 +118,10 @@ describe('MeterReadingsService', () => {
     expect(billing.addUtilityLine).toHaveBeenCalledWith(
       activeLease,
       expect.objectContaining({ amount: 250, sourceRefId: 'r1' }),
+      prisma,
     );
+    expect(billing.ensureCurrentDraft).toHaveBeenCalledWith(activeLease);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it('мягко предупреждает при расходе >10× среднего, но сохраняет', async () => {
@@ -162,5 +169,72 @@ describe('MeterReadingsService', () => {
     await expect(
       service.listForMeter('stranger', 'm1'),
     ).rejects.toThrow();
+  });
+
+  it('readingDate в будущем → BadRequest', async () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.create('tenant1', 'm1', 100, photo, tomorrow),
+    ).rejects.toThrow('Дата показания не может быть в будущем');
+    expect(prisma.meter.findUnique).not.toHaveBeenCalled();
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it('второе показание в периоде создаёт вторую строку без двойного начисления', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ value: 100 }]);
+    prisma.meterReading.create
+      .mockResolvedValueOnce({ id: 'r1' })
+      .mockResolvedValueOnce({ id: 'r2' });
+
+    const first = await service.create('tenant1', 'm1', 100, photo);
+    const second = await service.create('tenant1', 'm1', 150, photo);
+
+    expect(first.consumption).toBe(100);
+    expect(second.consumption).toBe(50);
+    const lineAmounts = billing.addUtilityLine.mock.calls.map(
+      (call) => call[1].amount,
+    );
+    expect(lineAmounts).toEqual([500, 250]);
+    expect(lineAmounts.reduce((sum, amount) => sum + amount, 0)).toBe(750);
+  });
+
+  it('сбой строки расхода откатывает создание показания той же транзакцией', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    let persisted = false;
+    const tx = {
+      meterReading: {
+        create: jest.fn().mockImplementation(async () => {
+          persisted = true;
+          return { id: 'r1' };
+        }),
+      },
+    };
+    prisma.$transaction.mockImplementation(
+      async (callback: (client: typeof tx) => Promise<unknown>) => {
+        try {
+          return await callback(tx);
+        } catch (error) {
+          persisted = false;
+          throw error;
+        }
+      },
+    );
+    billing.addUtilityLine.mockRejectedValue(new Error('line failed'));
+
+    await expect(
+      service.create('tenant1', 'm1', 100, photo),
+    ).rejects.toThrow('line failed');
+    expect(persisted).toBe(false);
+    expect(billing.addUtilityLine).toHaveBeenCalledWith(
+      activeLease,
+      expect.objectContaining({ sourceRefId: 'r1' }),
+      tx,
+    );
   });
 });

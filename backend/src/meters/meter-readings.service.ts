@@ -57,6 +57,10 @@ export class MeterReadingsService {
     if (!ext) {
       throw new BadRequestException('Фото должно быть JPEG или PNG');
     }
+    const parsedReadingDate = readingDate ? new Date(readingDate) : null;
+    if (parsedReadingDate && parsedReadingDate.getTime() > Date.now()) {
+      throw new BadRequestException('Дата показания не может быть в будущем');
+    }
 
     const meter = await this.prisma.meter.findUnique({
       where: { id: meterId },
@@ -107,23 +111,30 @@ export class MeterReadingsService {
     const storageKey = `meters/${meterId}/reading-${randomUUID()}.${ext}`;
     await this.storage.put(storageKey, photo.buffer, photo.mimetype);
 
-    const reading = await this.prisma.meterReading.create({
-      data: {
-        meterId,
-        leaseId: lease.id,
-        value: confirmedValue,
-        ocrValue: ocrValue ?? undefined,
-        photoStorageKey: storageKey,
-        enteredById: userId,
-        ...(readingDate ? { readingDate: new Date(readingDate) } : {}),
-      },
-    });
-
     const cost = round2(consumption * toNumber(meter.tariff));
-    await this.billing.addUtilityLine(lease, {
-      title: `${meter.name}: расход ${consumption} × ${toNumber(meter.tariff)}`,
-      amount: cost,
-      sourceRefId: reading.id,
+    await this.billing.ensureCurrentDraft(lease);
+    const reading = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.meterReading.create({
+        data: {
+          meterId,
+          leaseId: lease.id,
+          value: confirmedValue,
+          ocrValue: ocrValue ?? undefined,
+          photoStorageKey: storageKey,
+          enteredById: userId,
+          ...(parsedReadingDate ? { readingDate: parsedReadingDate } : {}),
+        },
+      });
+      await this.billing.addUtilityLine(
+        lease,
+        {
+          title: `${meter.name}: расход ${consumption} × ${toNumber(meter.tariff)}`,
+          amount: cost,
+          sourceRefId: created.id,
+        },
+        tx,
+      );
+      return created;
     });
 
     return { reading, consumption, cost, warning };

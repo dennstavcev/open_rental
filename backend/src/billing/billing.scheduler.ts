@@ -21,12 +21,15 @@ export class BillingScheduler {
     }
   }
 
-  // Ежедневно: напоминания за 3 и за 1 день до оплаты подать показания.
+  // Ежедневно: напоминания за 3 и за 1 день до срока подачи показаний.
   @Cron(CronExpression.EVERY_DAY_AT_9AM)
   async handleReadingReminders(): Promise<void> {
-    const { reminded } = await this.billing.runReadingReminders();
-    if (reminded) {
-      this.logger.log(`Напоминаний о показаниях отправлено: ${reminded}`);
+    const { reminded, overdueNotified } =
+      await this.billing.runReadingReminders();
+    if (reminded || overdueNotified) {
+      this.logger.log(
+        `Напоминаний о показаниях отправлено: ${reminded}, уведомлений о просрочке: ${overdueNotified}`,
+      );
     }
   }
 }

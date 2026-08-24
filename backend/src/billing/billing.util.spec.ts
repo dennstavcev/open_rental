@@ -1,8 +1,11 @@
 import { BillPaymentStatus, BillStage } from '@prisma/client';
 import {
   billTotal,
+  calendarDaysUntil,
   computeAccruedPenalty,
   computePeriod,
+  computeReadingsDueDate,
+  computeReadingsStatus,
   isOverdue,
   nextPeriod,
 } from './billing.util';
@@ -36,6 +39,96 @@ describe('billing.util', () => {
     const p = nextPeriod(end, 20);
     expect(p.periodStart.getTime()).toBe(end.getTime());
     expect(p.periodEnd.toISOString()).toBe('2026-11-20T12:00:00.000Z');
+  });
+
+  describe('срок и статус показаний (ADR-0024)', () => {
+    it('computeReadingsDueDate вычитает ровно 5 дней', () => {
+      const periodEnd = new Date(Date.UTC(2026, 9, 20, 12));
+      expect(computeReadingsDueDate(periodEnd).toISOString()).toBe(
+        '2026-10-15T12:00:00.000Z',
+      );
+      expect(periodEnd.toISOString()).toBe('2026-10-20T12:00:00.000Z');
+    });
+
+    it('при paymentDay 1..28 срок всегда строго внутри периода', () => {
+      for (let paymentDay = 1; paymentDay <= 28; paymentDay += 1) {
+        for (let month = 0; month < 12; month += 1) {
+          const period = computePeriod(
+            new Date(Date.UTC(2028, month, 15, 12)),
+            paymentDay,
+          );
+          const due = computeReadingsDueDate(period.periodEnd);
+          expect(due.getTime()).toBeGreaterThan(period.periodStart.getTime());
+          expect(due.getTime()).toBeLessThan(period.periodEnd.getTime());
+        }
+      }
+    });
+
+    it('calendarDaysUntil не зависит от часа внутри суток', () => {
+      const target = new Date(Date.UTC(2026, 9, 20, 12));
+      expect(
+        calendarDaysUntil(target, new Date(Date.UTC(2026, 9, 17, 0, 30))),
+      ).toBe(3);
+      expect(
+        calendarDaysUntil(target, new Date(Date.UTC(2026, 9, 17, 23, 30))),
+      ).toBe(3);
+    });
+
+    it.each([
+      { meterActive: false, leaseActive: true },
+      { meterActive: true, leaseActive: false },
+    ])('неактивная обязанность имеет not_required', (activity) => {
+      expect(
+        computeReadingsStatus({
+          ...activity,
+          submitted: false,
+          readingsDueDate: new Date(Date.UTC(2026, 9, 20)),
+          now: new Date(Date.UTC(2026, 9, 21)),
+        }),
+      ).toBe('not_required');
+    });
+
+    it('закрытая активная обязанность имеет submitted', () => {
+      expect(
+        computeReadingsStatus({
+          meterActive: true,
+          leaseActive: true,
+          submitted: true,
+          readingsDueDate: new Date(Date.UTC(2026, 9, 20)),
+          now: new Date(Date.UTC(2026, 9, 21)),
+        }),
+      ).toBe('submitted');
+    });
+
+    it('весь день дедлайна остаётся due', () => {
+      const readingsDueDate = new Date(Date.UTC(2026, 9, 20, 12));
+      for (const hour of [0, 12, 23]) {
+        expect(
+          computeReadingsStatus({
+            meterActive: true,
+            leaseActive: true,
+            submitted: false,
+            readingsDueDate,
+            now: new Date(Date.UTC(2026, 9, 20, hour, 59)),
+          }),
+        ).toBe('due');
+      }
+    });
+
+    it('со следующих календарных суток статус overdue и дней -1', () => {
+      const readingsDueDate = new Date(Date.UTC(2026, 9, 20, 12));
+      const now = new Date(Date.UTC(2026, 9, 21, 0, 1));
+      expect(calendarDaysUntil(readingsDueDate, now)).toBe(-1);
+      expect(
+        computeReadingsStatus({
+          meterActive: true,
+          leaseActive: true,
+          submitted: false,
+          readingsDueDate,
+          now,
+        }),
+      ).toBe('overdue');
+    });
   });
 
   it('billTotal суммирует статьи', () => {

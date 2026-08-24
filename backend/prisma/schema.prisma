@@ -270,6 +270,10 @@ model Bill {
   // Задел под будущий эквайринг СБП (ADR-0011), в MVP всегда null.
   paymentLink              String?
   qrPayload                String?
+  // Обеим сторонам уже сообщили, что срок подачи показаний истёк.
+  readingsOverdueAlertedAt DateTime?
+  // Обеим сторонам уже сообщили, что расчёт не готов из-за показаний.
+  readingsMissingAlertedAt DateTime?
   createdAt                DateTime           @default(now())
   updatedAt                DateTime           @updatedAt
 
@@ -277,6 +281,7 @@ model Bill {
   payment      Payment?
   paymentProof PaymentProof?
 
+  @@unique([leaseId, periodStart])
   @@index([leaseId])
   @@map("bills")
 }

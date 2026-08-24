@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, Ban, CalendarDays, Droplet, Flame, Gauge, Zap } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarDays, Copy, Droplet, Flame, Gauge, Zap } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { EmptyState } from '@/components/EmptyState';
 import { LeaseTabs } from '@/components/LeaseTabs';
@@ -17,6 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
 import { listMetersForLease, submitReading, Meter, METER_UNIT_LABEL } from '@/lib/catalog';
+import { copyText } from '@/lib/clipboard';
+import { formatReadingForCopy } from '@/lib/format';
 import { usePolling } from '@/lib/usePolling';
 
 const METER_ICON: Record<Meter['meterType'], LucideIcon> = {
@@ -31,9 +33,12 @@ function MetersHubInner() {
   const [meters, setMeters] = useState<Meter[]>([]);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  const [readingsDueDate, setReadingsDueDate] = useState('');
+  const [readingsDaysLeft, setReadingsDaysLeft] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const [readMeter, setReadMeter] = useState<Meter | null>(null);
   const [readValue, setReadValue] = useState('');
@@ -46,6 +51,8 @@ function MetersHubInner() {
       setMeters(view.meters);
       setPeriodStart(view.periodStart.slice(0, 10));
       setPeriodEnd(view.periodEnd.slice(0, 10));
+      setReadingsDueDate(view.readingsDueDate.slice(0, 10));
+      setReadingsDaysLeft(view.readingsDaysLeft);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     } finally {
@@ -82,6 +89,16 @@ function MetersHubInner() {
     }
   }
 
+  async function copyReading(m: Meter) {
+    if (!(await copyText(formatReadingForCopy(m.lastReadingValue)))) {
+      setError('Не удалось скопировать — выделите значение вручную');
+      return;
+    }
+    setError(null);
+    setCopied(m.id);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
   return (
     <AppShell>
       <PageHeader
@@ -105,9 +122,21 @@ function MetersHubInner() {
       {/* Срок текущего периода — общий для всех счётчиков, поэтому вынесен
           из карточек наверх: это главное, что нужно знать арендатору. */}
       {!loading && meters.length > 0 && (
-        <p className="mb-6 flex items-center gap-3 rounded-md bg-sand-200/60 px-4 py-3 text-sm text-content-secondary">
-          <CalendarDays aria-hidden className="size-4 shrink-0 text-content-muted" />
-          Текущий период: {periodStart} — {periodEnd}
+        <p
+          className={`mb-6 flex items-center gap-3 rounded-md px-4 py-3 text-sm ${
+            readingsDaysLeft < 0
+              ? 'border border-danger-line bg-danger-weak text-danger'
+              : 'bg-sand-200/60 text-content-secondary'
+          }`}
+        >
+          <CalendarDays aria-hidden className="size-4 shrink-0" />
+          <span>
+            Текущий период: {periodStart} — {periodEnd} · показания до{' '}
+            {readingsDueDate}
+            {readingsDaysLeft < 0 && (
+              <> · Показания просрочены на {-readingsDaysLeft} дн.</>
+            )}
+          </span>
         </p>
       )}
 
@@ -123,6 +152,13 @@ function MetersHubInner() {
         <div className="divide-y divide-line border-y border-line">
           {meters.map((m) => {
             const Icon = METER_ICON[m.meterType];
+            const readingsStatus =
+              m.readingsStatus ??
+              (!m.isActive
+                ? 'not_required'
+                : m.currentPeriodSubmitted
+                  ? 'submitted'
+                  : 'due');
             return (
               <article
                 key={m.id}
@@ -134,10 +170,21 @@ function MetersHubInner() {
 
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-content">{m.name}</p>
-                  <p className="text-sm text-content-muted">
-                    {m.serialNumber ? `№ ${m.serialNumber} · ` : ''}
-                    Текущее: {m.lastReadingValue} {METER_UNIT_LABEL[m.meterType]}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm text-content-muted">
+                      {m.serialNumber ? `№ ${m.serialNumber} · ` : ''}
+                      Текущее: {m.lastReadingValue} {METER_UNIT_LABEL[m.meterType]}
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void copyReading(m)}
+                      aria-label={`Копировать показание счётчика «${m.name}»`}
+                    >
+                      <Copy aria-hidden />
+                      {copied === m.id ? 'Скопировано' : 'Копировать'}
+                    </Button>
+                  </div>
                   {m.calibrationDueDate && (
                     <p className="mt-1 text-sm text-content-muted">
                       Поверка счётчика: {m.calibrationDueDate.slice(0, 10)}
@@ -146,14 +193,24 @@ function MetersHubInner() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  {!m.isActive ? (
-                    <StatusPill tone="neutral" icon={Ban}>
-                      Отключён
-                    </StatusPill>
-                  ) : m.currentPeriodSubmitted ? (
+                  {readingsStatus === 'not_required' ? (
+                    m.isActive ? (
+                      <StatusPill tone="neutral">Договор не действует</StatusPill>
+                    ) : (
+                      <StatusPill tone="neutral" icon={Ban}>
+                        Отключён
+                      </StatusPill>
+                    )
+                  ) : readingsStatus === 'submitted' ? (
                     <StatusPill tone="success">Показания внесены</StatusPill>
+                  ) : readingsStatus === 'overdue' ? (
+                    <StatusPill tone="danger">
+                      Просрочено на {-readingsDaysLeft} дн.
+                    </StatusPill>
                   ) : (
-                    <StatusPill tone="warn">Внесите показания до {periodEnd}</StatusPill>
+                    <StatusPill tone="warn">
+                      Внесите до {readingsDueDate}
+                    </StatusPill>
                   )}
 
                   <Button asChild variant="secondary" size="sm">

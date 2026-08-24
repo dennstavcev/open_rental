@@ -1,9 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Meter } from '@prisma/client';
+import { BillStage, LeaseStatus, Meter } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PropertiesService } from '../properties/properties.service';
 import { LeasesService } from '../leases/leases.service';
-import { computePeriod, toNumber } from '../billing/billing.util';
+import {
+  calendarDaysUntil,
+  computePeriod,
+  computeReadingsDueDate,
+  computeReadingsStatus,
+  ReadingsStatus,
+  toNumber,
+} from '../billing/billing.util';
+import { BillingService } from '../billing/billing.service';
 import { CreateMeterDto } from './dto/create-meter.dto';
 import { UpdateMeterDto } from './dto/update-meter.dto';
 
@@ -21,6 +29,7 @@ export class MetersService {
     private readonly prisma: PrismaService,
     private readonly properties: PropertiesService,
     private readonly leases: LeasesService,
+    private readonly billing: BillingService,
   ) {}
 
   async create(
@@ -64,47 +73,78 @@ export class MetersService {
 
   // Список счётчиков для хаба аренды — landlord ИЛИ tenant договора
   // (ADR-0015), в отличие от findAll (landlord-only, карточка объекта).
-  // Добавляет currentPeriodSubmitted — подано ли показание в текущем
-  // расчётном периоде договора; границы периода отдаются вместе со
-  // списком, чтобы фронтенд не дублировал computePeriod.
+  // Добавляет currentPeriodSubmitted — закрыта ли обязанность строкой
+  // расхода в открытом счёте; границы счёта отдаются вместе со списком,
+  // чтобы фронтенд и планировщик не расходились (ADR-0024).
   async findAllForLease(
     userId: string,
     leaseId: string,
   ): Promise<{
     periodStart: Date;
     periodEnd: Date;
-    meters: (MeterListItem & { currentPeriodSubmitted: boolean })[];
+    readingsDueDate: Date;
+    readingsDaysLeft: number;
+    meters: (MeterListItem & {
+      currentPeriodSubmitted: boolean;
+      readingsStatus: ReadingsStatus;
+    })[];
   }> {
     const lease = await this.leases.getForUser(userId, leaseId);
-    const { periodStart, periodEnd } = computePeriod(
-      new Date(),
-      lease.paymentDay,
-    );
+    const now = new Date();
+    if (lease.status === LeaseStatus.active) {
+      await this.billing.ensureCurrentDraft(lease);
+    }
+    const draft = await this.prisma.bill.findFirst({
+      where: { leaseId, stage: BillStage.draft },
+      orderBy: { periodStart: 'asc' },
+      select: { id: true, periodStart: true, periodEnd: true },
+    });
+    if (lease.status === LeaseStatus.active && !draft) {
+      throw new NotFoundException('Черновик счёта не найден');
+    }
+    const period = draft ?? computePeriod(now, lease.paymentDay);
+    const { periodStart, periodEnd } = period;
+    const readingsDueDate = computeReadingsDueDate(periodEnd);
+    const readingsDaysLeft = calendarDaysUntil(readingsDueDate, now);
     const meters = await this.prisma.meter.findMany({
       where: { propertyId: lease.propertyId },
       orderBy: { createdAt: 'desc' },
       include: { readings: { orderBy: { readingDate: 'desc' }, take: 1 } },
     });
-    const withStatus = await Promise.all(
-      meters.map(async ({ readings, ...meter }) => {
-        const currentPeriodReading = await this.prisma.meterReading.findFirst(
-          {
-            where: {
-              meterId: meter.id,
-              readingDate: { gte: periodStart, lt: periodEnd },
-            },
-          },
-        );
-        return {
-          ...meter,
-          lastReadingValue: readings.length
-            ? toNumber(readings[0].value)
-            : toNumber(meter.initialReading),
-          currentPeriodSubmitted: !!currentPeriodReading,
-        };
-      }),
+    const pendingIds = new Set(
+      draft && lease.status === LeaseStatus.active
+        ? (
+            await this.billing.metersPendingForBill({
+              id: draft.id,
+              propertyId: lease.propertyId,
+            })
+          ).map((meter) => meter.id)
+        : [],
     );
-    return { periodStart, periodEnd, meters: withStatus };
+    const withStatus = meters.map(({ readings, ...meter }) => {
+      const readingsStatus = computeReadingsStatus({
+        meterActive: meter.isActive,
+        leaseActive: lease.status === LeaseStatus.active,
+        submitted: !pendingIds.has(meter.id),
+        readingsDueDate,
+        now,
+      });
+      return {
+        ...meter,
+        lastReadingValue: readings.length
+          ? toNumber(readings[0].value)
+          : toNumber(meter.initialReading),
+        currentPeriodSubmitted: readingsStatus === 'submitted',
+        readingsStatus,
+      };
+    });
+    return {
+      periodStart,
+      periodEnd,
+      readingsDueDate,
+      readingsDaysLeft,
+      meters: withStatus,
+    };
   }
 
   async update(

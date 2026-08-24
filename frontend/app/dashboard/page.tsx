@@ -9,6 +9,7 @@ import {
   ChartNoAxesColumn,
   Check,
   FileText,
+  Gauge,
   Info,
   Mail,
   Plus,
@@ -32,6 +33,7 @@ import { listNotifications } from '@/lib/notifications';
 import { getSummary } from '@/lib/reports';
 import { formatMoney } from '@/lib/format';
 import { getPartyInfoStatus } from '@/lib/party-info';
+import { listMetersForLease } from '@/lib/catalog';
 
 interface Action {
   key: string;
@@ -121,6 +123,31 @@ function DashboardInner() {
           }
         } else if (l.status === 'active') {
           const bills = await listBills(l.id).catch(() => []);
+          const meterView = await listMetersForLease(l.id).catch(() => null);
+          const readingsOverdue =
+            meterView?.meters.some((meter) => meter.readingsStatus === 'overdue') ??
+            false;
+          const readingsDueSoon =
+            (meterView?.readingsDaysLeft ?? Number.POSITIVE_INFINITY) <= 3 &&
+            (meterView?.meters.some((meter) => meter.readingsStatus === 'due') ??
+              false);
+          if (
+            (role === 'tenant' && (readingsOverdue || readingsDueSoon)) ||
+            (role === 'landlord' && readingsOverdue)
+          ) {
+            acts.push({
+              key: `readings-${l.id}`,
+              icon: Gauge,
+              title:
+                role === 'landlord'
+                  ? 'Арендатор не подал показания'
+                  : readingsOverdue
+                    ? 'Показания просрочены'
+                    : 'Подайте показания',
+              subtitle: place,
+              href: `/leases/${l.id}/meters`,
+            });
+          }
           const fin = bills.find(
             (b) => b.bill.stage === 'final' && b.bill.paymentStatus !== 'paid',
           );

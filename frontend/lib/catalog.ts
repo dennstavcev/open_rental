@@ -2,6 +2,11 @@ import { apiFetch } from './api';
 
 export type ServiceType = 'monthly' | 'one_time';
 export type MeterType = 'electricity' | 'water' | 'gas' | 'heating';
+export type ReadingsStatus =
+  | 'submitted'
+  | 'due'
+  | 'overdue'
+  | 'not_required';
 
 export interface Service {
   id: string;
@@ -27,6 +32,7 @@ export interface Meter {
   // Подано ли показание в текущем расчётном периоде — только у
   // счётчиков, полученных через listMetersForLease (ADR-0015).
   currentPeriodSubmitted?: boolean;
+  readingsStatus?: ReadingsStatus;
 }
 
 export interface ReadingResult {
@@ -127,12 +133,14 @@ export function updateMeter(
 export interface LeaseMetersView {
   periodStart: string;
   periodEnd: string;
+  readingsDueDate: string;
+  readingsDaysLeft: number;
   meters: Meter[];
 }
 
 // Счётчики хаба аренды (ADR-0015) — landlord ИЛИ tenant договора, в
-// отличие от listMeters (landlord-only, карточка объекта). Границы
-// текущего периода приходят с бэкенда — не дублируем computePeriod.
+// отличие от listMeters (landlord-only, карточка объекта). Границы и
+// срок открытого счёта приходят с бэкенда — не дублируем расчёт периода.
 export function listMetersForLease(leaseId: string): Promise<LeaseMetersView> {
   return apiFetch<LeaseMetersView>(`/leases/${leaseId}/meters`);
 }
