@@ -107,7 +107,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-line bg-surface-sticky px-4 py-5 backdrop-blur-md lg:flex">
         <div className="px-2">
           <Logo markSize={30} />
-          <p className="mt-1 text-xs text-content-muted">Аренда проще. Жизнь комфортнее.</p>
+          <p className="mt-1 whitespace-nowrap text-xs text-content-muted">
+            Аренда проще. Жизнь комфортнее.
+          </p>
         </div>
 
         <nav className="mt-8 flex flex-col gap-1">

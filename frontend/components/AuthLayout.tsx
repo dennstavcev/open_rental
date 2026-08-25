@@ -27,10 +27,15 @@ export function AuthLayout({ back, children }: { back: string; children: React.R
           десктопе центрирована в узкой колонке. */}
       <div className="flex flex-1 flex-col justify-end px-5 pb-10 lg:justify-center lg:px-6 lg:pb-16">
         <div className="mx-auto w-full max-w-form lg:rounded-lg lg:border lg:border-line lg:bg-surface lg:p-8 lg:shadow-raised">
-          {/* Лок-ап целиком — это брендовый момент, а не служебная
-              шапка: слоган здесь уместен. На фото он читается за счёт
-              светлой подложки самого знака. */}
-          <Logo variant="lockup" className="w-40 lg:w-44" />
+          {/* На десктопе форма лежит на светлой карточке — там уместен
+              полный лок-ап со слоганом. На мобильном тот же лок-ап лёг бы
+              тёмной словомаркой прямо на фотографию и почти не читался,
+              поэтому там знак и словомарка набором: она наследует светлый
+              цвет из контекста `.auth-shell`. */}
+          <div className="flex justify-center">
+            <Logo markSize={34} className="lg:hidden" />
+            <Logo variant="lockup" className="hidden w-44 lg:block" />
+          </div>
           {children}
         </div>
       </div>
