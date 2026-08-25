@@ -205,4 +205,97 @@ describe('MetersService', () => {
     expect(billing.ensureCurrentDraft).not.toHaveBeenCalled();
     expect(billing.metersPendingForBill).not.toHaveBeenCalled();
   });
+
+  it('findAllForLease для завершённого договора берёт последнее показание этого договора', async () => {
+    leases.getForUser.mockResolvedValue({
+      id: 'l1',
+      propertyId: 'p1',
+      paymentDay: 5,
+      status: LeaseStatus.terminated,
+    });
+    prisma.bill.findFirst.mockResolvedValue(null);
+    prisma.meter.findMany.mockImplementation(({ include }) =>
+      Promise.resolve([
+        {
+          id: 'm1',
+          isActive: true,
+          initialReading: 50,
+          readings: include.readings.where?.leaseId === 'l1' ? [{ value: 120 }] : [{ value: 999 }],
+        },
+      ]),
+    );
+
+    const result = await service.findAllForLease('tenant1', 'l1');
+
+    expect(result.meters[0].lastReadingValue).toBe(120);
+    expect(prisma.meter.findMany.mock.calls[0][0].include.readings.where).toEqual({
+      leaseId: 'l1',
+    });
+  });
+
+  it('findAllForLease для sent-договора не показывает показание другого договора', async () => {
+    leases.getForUser.mockResolvedValue({
+      id: 'l-sent',
+      propertyId: 'p1',
+      paymentDay: 5,
+      status: LeaseStatus.sent,
+    });
+    prisma.bill.findFirst.mockResolvedValue(null);
+    prisma.meter.findMany.mockImplementation(({ include }) =>
+      Promise.resolve([
+        {
+          id: 'm1',
+          isActive: true,
+          initialReading: 50,
+          readings:
+            include.readings.where?.leaseId === 'l-sent'
+              ? [{ value: 75 }]
+              : [{ value: 999 }],
+        },
+      ]),
+    );
+
+    const result = await service.findAllForLease('tenant1', 'l-sent');
+
+    expect(result.meters[0].lastReadingValue).toBe(75);
+  });
+
+  it('findAllForLease для неактивного договора без своих показаний берёт initialReading', async () => {
+    leases.getForUser.mockResolvedValue({
+      id: 'l1',
+      propertyId: 'p1',
+      paymentDay: 5,
+      status: LeaseStatus.terminated,
+    });
+    prisma.bill.findFirst.mockResolvedValue(null);
+    prisma.meter.findMany.mockResolvedValue([
+      { id: 'm1', isActive: true, initialReading: 50, readings: [] },
+    ]);
+
+    const result = await service.findAllForLease('tenant1', 'l1');
+
+    expect(result.meters[0].lastReadingValue).toBe(50);
+  });
+
+  it('findAllForLease для активного договора сохраняет последнее показание счётчика в целом', async () => {
+    leases.getForUser.mockResolvedValue({
+      id: 'l2',
+      propertyId: 'p1',
+      paymentDay: 5,
+      status: LeaseStatus.active,
+    });
+    prisma.bill.findFirst.mockResolvedValue({
+      id: 'b1',
+      periodStart: new Date(Date.UTC(2026, 7, 5, 12)),
+      periodEnd: new Date(Date.UTC(2026, 8, 5, 12)),
+    });
+    prisma.meter.findMany.mockResolvedValue([
+      { id: 'm1', isActive: true, initialReading: 50, readings: [{ value: 999 }] },
+    ]);
+
+    const result = await service.findAllForLease('tenant2', 'l2');
+
+    expect(result.meters[0].lastReadingValue).toBe(999);
+    expect(prisma.meter.findMany.mock.calls[0][0].include.readings.where).toBeUndefined();
+  });
 });

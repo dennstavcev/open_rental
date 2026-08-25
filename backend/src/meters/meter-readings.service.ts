@@ -18,6 +18,7 @@ import {
 } from '../ocr/meter-ocr-provider.interface';
 import { BillingService } from '../billing/billing.service';
 import { round2, toNumber } from '../billing/billing.util';
+import { LeasesService } from '../leases/leases.service';
 
 const ALLOWED_PHOTO: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -44,6 +45,7 @@ export class MeterReadingsService {
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
     @Inject(METER_OCR_PROVIDER) private readonly ocr: MeterOcrProvider,
     private readonly billing: BillingService,
+    private readonly leases: LeasesService,
   ) {}
 
   async create(
@@ -140,27 +142,22 @@ export class MeterReadingsService {
     return { reading, consumption, cost, warning };
   }
 
-  // История показаний счётчика (ADR-0015) — доступна landlord/tenant
-  // текущего активного договора объекта; scoped на этот договор (не
-  // «протекает» история прошлых арендаторов того же объекта).
-  async listForMeter(
+  // История показаний доступна сторонам указанного договора и ограничена
+  // этим договором независимо от его статуса (ADR-0034).
+  async listForLeaseMeter(
     userId: string,
+    leaseId: string,
     meterId: string,
   ): Promise<MeterReading[]> {
+    const lease = await this.leases.getForUser(userId, leaseId);
     const meter = await this.prisma.meter.findUnique({
       where: { id: meterId },
     });
-    if (!meter) {
-      throw new NotFoundException('Счётчик не найден');
-    }
-    const lease = await this.prisma.lease.findFirst({
-      where: { propertyId: meter.propertyId, status: LeaseStatus.active },
-    });
-    if (!lease || (lease.landlordId !== userId && lease.tenantId !== userId)) {
+    if (!meter || meter.propertyId !== lease.propertyId) {
       throw new NotFoundException('Счётчик не найден');
     }
     return this.prisma.meterReading.findMany({
-      where: { meterId, leaseId: lease.id },
+      where: { meterId, leaseId },
       orderBy: { readingDate: 'desc' },
     });
   }

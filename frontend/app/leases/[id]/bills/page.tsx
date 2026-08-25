@@ -328,7 +328,7 @@ function BillsInner() {
                     )}
 
                     <div className="mt-4 flex flex-wrap gap-3">
-                      {bill.stage === 'draft' && (
+                      {bill.stage === 'draft' && isLandlord && (
                         <>
                           <Button
                             disabled={busy}
@@ -336,15 +336,13 @@ function BillsInner() {
                           >
                             Сформировать счёт
                           </Button>
-                          {isLandlord && (
-                            <Button
-                              variant="secondary"
-                              disabled={busy}
-                              onClick={() => setSheetBill(bill.id)}
-                            >
-                              Добавить статью
-                            </Button>
-                          )}
+                          <Button
+                            variant="secondary"
+                            disabled={busy}
+                            onClick={() => setSheetBill(bill.id)}
+                          >
+                            Добавить статью
+                          </Button>
                         </>
                       )}
                       {payable && isTenant && (

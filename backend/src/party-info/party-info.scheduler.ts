@@ -12,9 +12,11 @@ export class PartyInfoScheduler {
 
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async handleRetention(): Promise<void> {
-    const { deleted } = await this.partyInfo.runRetention();
-    if (deleted) {
-      this.logger.log(`Ретеншен ПДн: удалено записей — ${deleted}`);
+    const { deleted, documentsDeleted } = await this.partyInfo.runRetention();
+    if (deleted || documentsDeleted) {
+      this.logger.log(
+        `Ретеншен ПДн: удалено записей ПДн — ${deleted}, версий документов — ${documentsDeleted}`,
+      );
     }
   }
 }

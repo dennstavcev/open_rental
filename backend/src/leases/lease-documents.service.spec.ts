@@ -1,4 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { LeaseStatus } from '@prisma/client';
 import { LeaseDocumentsService } from './lease-documents.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from './leases.service';
@@ -13,6 +14,8 @@ const leaseWithRelations = {
   rentAmount: 50000,
   depositAmount: 0,
   paymentDay: 20,
+  status: LeaseStatus.active,
+  effectiveEndDate: null,
   property: {
     address: 'Москва, Тверская 1',
     city: 'Иркутск',
@@ -164,6 +167,57 @@ describe('LeaseDocumentsService', () => {
     await expect(service.generate('stranger', 'l1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  describe('ретеншен документов (ADR-0033)', () => {
+    function terminatedLease(endDate: Date) {
+      return {
+        ...leaseWithRelations,
+        status: LeaseStatus.terminated,
+        endDate,
+        effectiveEndDate: null,
+        depositReturnAmount: 0,
+        returnActConfirmedAt: null,
+        returnActDamageTotal: null,
+        returnActDepositReturn: null,
+        returnActUncovered: null,
+      };
+    }
+
+    it.each([
+      ['договор', (documents: LeaseDocumentsService) => documents.generate('landlord1', 'l1')],
+      ['акт приёма-передачи', (documents: LeaseDocumentsService) => documents.generateHandoverAct('landlord1', 'l1')],
+      ['акт возврата', (documents: LeaseDocumentsService) => documents.generateReturnAct('landlord1', 'l1')],
+    ])('не пересоздаёт %s после истечения срока хранения', async (_name, generate) => {
+      prisma.lease.findUnique.mockResolvedValue(
+        terminatedLease(new Date('2000-01-01T00:00:00Z')),
+      );
+
+      await expect(generate(service)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.leaseDocument.create).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['договор', (documents: LeaseDocumentsService) => documents.generate('landlord1', 'l1')],
+      ['акт приёма-передачи', (documents: LeaseDocumentsService) => documents.generateHandoverAct('landlord1', 'l1')],
+      ['акт возврата', (documents: LeaseDocumentsService) => documents.generateReturnAct('landlord1', 'l1')],
+    ])('сохраняет генерацию «%s» для недавно завершённого договора', async (_name, generate) => {
+      prisma.lease.findUnique.mockResolvedValue(terminatedLease(new Date()));
+      prisma.leaseDocument.findFirst.mockResolvedValue(null);
+
+      await expect(generate(service)).resolves.toEqual(
+        expect.objectContaining({ id: 'd1', version: 1 }),
+      );
+    });
+
+    it('сохраняет генерацию договора для активной аренды', async () => {
+      prisma.lease.findUnique.mockResolvedValue(leaseWithRelations);
+      prisma.leaseDocument.findFirst.mockResolvedValue(null);
+
+      await expect(service.generate('landlord1', 'l1')).resolves.toEqual(
+        expect.objectContaining({ id: 'd1', version: 1 }),
+      );
+    });
   });
 
   it.each([null, ''])(

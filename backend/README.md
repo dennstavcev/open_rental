@@ -136,14 +136,14 @@ PDF-рендер (Puppeteer) отложен — HTML print-ready
 ## Биллинг (Bearer)
 
 Счета по договору — черновик обновляется по ходу периода, финализируется
-вручную (кнопка обеим сторонам; авто-планировщик отложён — см.
+вручную только собственником (авто-планировщик отложён — см.
 `docs/CHANGELOG.md`).
 
 | Метод | Путь | Кто | Описание |
 |---|---|---|---|
 | GET  | `/api/leases/:leaseId/bills` | landlord/tenant | Счета (с вычисленными пеней/просрочкой/суммой); лениво создаёт текущий черновик |
 | POST | `/api/bills/:billId/line-items` | landlord | Добавить произвольную статью (только черновик) |
-| POST | `/api/bills/:billId/finalize` | landlord/tenant | `draft`→`final` + черновик следующего периода (блок при непо́данных показаниях) |
+| POST | `/api/bills/:billId/finalize` | landlord | `draft`→`final` + черновик следующего периода (блок при непо́данных показаниях) |
 | POST | `/api/bills/:billId/claim-paid` | tenant | «Я оплатил» → `payment_claimed` |
 | POST | `/api/bills/:billId/confirm-paid` | landlord | «Оплата получена» → `paid` + `Payment` |
 | POST | `/api/bills/:billId/waive-penalty` | landlord | Простить пеню (заморозка суммы) |
@@ -157,11 +157,12 @@ PDF-рендер (Puppeteer) отложен — HTML print-ready
 черновик без поданных показаний пропускается (дозреет позже). BullMQ/Redis
 отложены (ADR-0013).
 
-## Показания счётчиков (`/api/meters/:meterId/readings`, Bearer)
+## Показания счётчиков (Bearer)
 
 | Метод | Путь | Описание |
 |---|---|---|
-| POST | `/` | Подать показание (multipart: `photo` JPEG/PNG обязательно + `confirmedValue`, `readingDate?`). OCR (`MeterOcrProvider`) в MVP замокан; валидация: новое ≥ предыдущего, мягкое предупреждение при расходе >10× среднего. Добавляет коммунальную строку в текущий черновик счёта |
+| POST | `/api/meters/:meterId/readings` | Подать показание (multipart: `photo` JPEG/PNG обязательно + `confirmedValue`, `readingDate?`). OCR (`MeterOcrProvider`) в MVP замокан; валидация: новое ≥ предыдущего, мягкое предупреждение при расходе >10× среднего. Добавляет коммунальную строку в текущий черновик счёта |
+| GET | `/api/leases/:leaseId/meters/:meterId/readings` | История показаний указанного договора для landlord/tenant, включая завершённый договор и отключённый счётчик |
 
 Планировщик авто-периодов (BullMQ), реальный Tesseract OCR и уведомления
 — следующие инкременты (см. `docs/CHANGELOG.md`).

@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Get,
   Param,
   Post,
   UploadedFile,
@@ -10,7 +9,6 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { MeterReading } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
@@ -48,13 +46,5 @@ export class MeterReadingsController {
       photo,
       dto.readingDate,
     );
-  }
-
-  @Get()
-  list(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('meterId') meterId: string,
-  ): Promise<MeterReading[]> {
-    return this.readings.listForMeter(user.id, meterId);
   }
 }

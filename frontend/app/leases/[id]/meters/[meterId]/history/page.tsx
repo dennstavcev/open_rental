@@ -24,13 +24,13 @@ function MeterHistoryInner() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      setReadings(await listReadingHistory(meterId));
+      setReadings(await listReadingHistory(id, meterId));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     } finally {
       setLoading(false);
     }
-  }, [meterId]);
+  }, [id, meterId]);
 
   useEffect(() => {
     void load();

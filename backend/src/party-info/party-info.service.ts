@@ -11,6 +11,7 @@ import {
   LeaseStatus,
   MaintenanceStatus,
   Prisma,
+  TerminationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -22,8 +23,7 @@ import {
   SavePartyInfoDto,
 } from './dto/party-info.dto';
 import { PRIVACY_POLICY_VERSION } from '../legal/privacy-policy.const';
-
-const RETENTION_YEARS = 3; // Срок исковой давности, ГК РФ ст. 196 (ADR-0021).
+import { isRetentionExpired } from '../legal/retention.const';
 
 type LeaseWithAddress = Prisma.LeaseGetPayload<{
   include: { property: { select: { address: true } } };
@@ -267,21 +267,35 @@ export class PartyInfoService {
     }
   }
 
-  // Ретеншен ПДн (ADR-0021): удаляет LeasePartyInfo для договоров,
-  // завершённых более RETENTION_YEARS лет назад. Пауза при активном споре —
-  // если по договору есть незакрытая заявка на обслуживание, удаление
-  // откладывается до её закрытия.
-  async runRetention(now: Date = new Date()): Promise<{ deleted: number }> {
-    const cutoff = new Date(now);
-    cutoff.setFullYear(cutoff.getFullYear() - RETENTION_YEARS);
+  // Единственная точка удаления ПДн договора (ADR-0033), которую также
+  // переиспользует ручной запрос профиля в Фазе 29.
+  async purgeLeasePii(
+    leaseId: string,
+  ): Promise<{ partyInfo: number; documents: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const partyInfo = await tx.leasePartyInfo.deleteMany({
+        where: { leaseId },
+      });
+      const documents = await tx.leaseDocument.deleteMany({
+        where: { leaseId },
+      });
+      return { partyInfo: partyInfo.count, documents: documents.count };
+    });
+  }
 
+  // Ретеншен ПДн (ADR-0021, ADR-0033): удаляет данные сторон и все версии
+  // документов после истечения срока. При активном споре удаление отложено.
+  async runRetention(
+    now: Date = new Date(),
+  ): Promise<{ deleted: number; documentsDeleted: number }> {
     const candidates = await this.prisma.lease.findMany({
       where: {
         status: LeaseStatus.terminated,
-        partyInfo: { some: {} },
+        OR: [{ partyInfo: { some: {} } }, { documents: { some: {} } }],
       },
       select: {
         id: true,
+        status: true,
         endDate: true,
         effectiveEndDate: true,
         maintenanceRequests: {
@@ -292,21 +306,28 @@ export class PartyInfoService {
           },
           select: { id: true },
         },
+        terminationRequests: {
+          where: { status: TerminationStatus.pending },
+          select: { id: true },
+        },
       },
     });
 
     let deleted = 0;
+    let documentsDeleted = 0;
     for (const lease of candidates) {
-      const endedAt = lease.effectiveEndDate ?? lease.endDate;
-      if (endedAt > cutoff || lease.maintenanceRequests.length > 0) {
+      if (
+        !isRetentionExpired(lease, now) ||
+        lease.maintenanceRequests.length > 0 ||
+        lease.terminationRequests.length > 0
+      ) {
         continue;
       }
-      const { count } = await this.prisma.leasePartyInfo.deleteMany({
-        where: { leaseId: lease.id },
-      });
-      deleted += count;
+      const purged = await this.purgeLeasePii(lease.id);
+      deleted += purged.partyInfo;
+      documentsDeleted += purged.documents;
     }
-    return { deleted };
+    return { deleted, documentsDeleted };
   }
 
   private async resolveParty(

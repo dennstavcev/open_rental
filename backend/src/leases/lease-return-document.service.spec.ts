@@ -15,6 +15,8 @@ function lease(overrides: Record<string, unknown> = {}) {
     landlordId: 'owner1',
     tenantId: 'tenant1',
     status: LeaseStatus.terminated,
+    endDate: new Date(),
+    effectiveEndDate: null,
     depositReturnAmount: new Prisma.Decimal(10_000),
     returnActConfirmedAt: null,
     returnActDamageTotal: null,

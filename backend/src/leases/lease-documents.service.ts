@@ -20,6 +20,7 @@ import { LEASE_CONTRACT_TEMPLATE } from './templates/lease-contract.template';
 import { LEASE_HANDOVER_ACT_TEMPLATE } from './templates/lease-handover-act.template';
 import { PartyInfoDto } from '../party-info/dto/party-info.dto';
 import { LEASE_RETURN_ACT_TEMPLATE } from './templates/lease-return-act.template';
+import { isRetentionExpired } from '../legal/retention.const';
 
 const RU_MONTHS = [
   'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
@@ -65,6 +66,11 @@ export class LeaseDocumentsService {
     });
     if (!lease || lease.landlordId !== userId) {
       throw new NotFoundException('Договор не найден');
+    }
+    if (isRetentionExpired(lease)) {
+      throw new ConflictException(
+        'Срок хранения данных договора истёк — документы удалены и не создаются заново',
+      );
     }
 
     const partyInfo = await this.loadPartyInfo(leaseId);
@@ -166,6 +172,11 @@ export class LeaseDocumentsService {
     if (!lease || lease.landlordId !== userId) {
       throw new NotFoundException('Договор не найден');
     }
+    if (isRetentionExpired(lease)) {
+      throw new ConflictException(
+        'Срок хранения данных договора истёк — документы удалены и не создаются заново',
+      );
+    }
 
     const items = await this.prisma.leaseInventoryItem.findMany({
       where: { leaseId },
@@ -215,6 +226,11 @@ export class LeaseDocumentsService {
     });
     if (!lease || lease.landlordId !== userId) {
       throw new NotFoundException('Договор не найден');
+    }
+    if (isRetentionExpired(lease)) {
+      throw new ConflictException(
+        'Срок хранения данных договора истёк — документы удалены и не создаются заново',
+      );
     }
     if (lease.status !== LeaseStatus.terminated) {
       throw new ConflictException(

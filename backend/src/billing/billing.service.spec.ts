@@ -138,6 +138,17 @@ describe('BillingService', () => {
   });
 
   describe('finalize', () => {
+    it('арендатор не может финализировать черновик договора', async () => {
+      prisma.bill.findUnique.mockResolvedValue(makeBill());
+
+      await expect(service.finalize(TENANT, 'b1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.bill.updateMany).not.toHaveBeenCalled();
+      expect(prisma.bill.create).not.toHaveBeenCalled();
+    });
+
     it('draft → final + создаёт черновик следующего периода', async () => {
       prisma.bill.findUnique.mockResolvedValue(makeBill());
       await service.finalize(LANDLORD, 'b1');

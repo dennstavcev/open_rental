@@ -4,7 +4,12 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { LeaseParty, LeaseStatus } from '@prisma/client';
+import {
+  LeaseParty,
+  LeaseStatus,
+  MaintenanceStatus,
+  TerminationStatus,
+} from '@prisma/client';
 import { PartyInfoService, parseBirthDate } from './party-info.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -20,6 +25,13 @@ type PrismaMock = {
     upsert: jest.Mock;
     deleteMany: jest.Mock;
   };
+  leaseDocument: { deleteMany: jest.Mock };
+  $transaction: jest.Mock;
+};
+
+type TxMock = {
+  leasePartyInfo: { deleteMany: jest.Mock };
+  leaseDocument: { deleteMany: jest.Mock };
 };
 
 const lease = {
@@ -60,10 +72,19 @@ function storedInfo(
 describe('PartyInfoService', () => {
   let service: PartyInfoService;
   let prisma: PrismaMock;
+  let tx: TxMock;
   let crypto: jest.Mocked<Pick<CryptoService, 'encrypt' | 'decrypt'>>;
   let notifications: jest.Mocked<Pick<NotificationsService, 'notify'>>;
 
   beforeEach(() => {
+    tx = {
+      leasePartyInfo: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      leaseDocument: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
     prisma = {
       lease: { findUnique: jest.fn(), findMany: jest.fn() },
       leasePartyInfo: {
@@ -72,6 +93,8 @@ describe('PartyInfoService', () => {
         upsert: jest.fn(),
         deleteMany: jest.fn(),
       },
+      leaseDocument: { deleteMany: jest.fn() },
+      $transaction: jest.fn((callback) => callback(tx)),
     };
     crypto = {
       encrypt: jest.fn().mockReturnValue('enc:new'),
@@ -432,71 +455,122 @@ describe('PartyInfoService', () => {
   describe('runRetention (ADR-0021)', () => {
     const now = new Date('2030-01-01T00:00:00Z');
 
-    it('удаляет ПДн договора, завершённого более 3 лет назад, без споров', async () => {
+    function candidate(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'l1',
+        status: LeaseStatus.terminated,
+        endDate: new Date('2026-06-01T00:00:00Z'),
+        effectiveEndDate: null,
+        maintenanceRequests: [],
+        terminationRequests: [],
+        ...overrides,
+      };
+    }
+
+    it('удаляет ПДн и документы дозревшего договора в одной транзакции', async () => {
       prisma.lease.findMany.mockResolvedValue([
-        {
-          id: 'l1',
-          endDate: new Date('2026-06-01T00:00:00Z'),
-          effectiveEndDate: null,
-          maintenanceRequests: [],
-        },
+        candidate(),
       ]);
-      prisma.leasePartyInfo.deleteMany.mockResolvedValue({ count: 2 });
+      tx.leasePartyInfo.deleteMany.mockResolvedValue({ count: 2 });
+      tx.leaseDocument.deleteMany.mockResolvedValue({ count: 3 });
 
       const res = await service.runRetention(now);
 
-      expect(res).toEqual({ deleted: 2 });
-      expect(prisma.leasePartyInfo.deleteMany).toHaveBeenCalledWith({
+      expect(res).toEqual({ deleted: 2, documentsDeleted: 3 });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(tx.leasePartyInfo.deleteMany).toHaveBeenCalledWith({
+        where: { leaseId: 'l1' },
+      });
+      expect(tx.leaseDocument.deleteMany).toHaveBeenCalledWith({
         where: { leaseId: 'l1' },
       });
     });
 
     it('не трогает договор младше 3 лет', async () => {
       prisma.lease.findMany.mockResolvedValue([
-        {
-          id: 'l1',
+        candidate({
           endDate: new Date('2028-06-01T00:00:00Z'),
-          effectiveEndDate: null,
-          maintenanceRequests: [],
-        },
+        }),
       ]);
 
       const res = await service.runRetention(now);
 
-      expect(res).toEqual({ deleted: 0 });
-      expect(prisma.leasePartyInfo.deleteMany).not.toHaveBeenCalled();
+      expect(res).toEqual({ deleted: 0, documentsDeleted: 0 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
-    it('откладывает удаление при незакрытой заявке (активный спор)', async () => {
+    it('откладывает удаление при незакрытой заявке на обслуживание', async () => {
       prisma.lease.findMany.mockResolvedValue([
-        {
-          id: 'l1',
-          endDate: new Date('2026-06-01T00:00:00Z'),
-          effectiveEndDate: null,
+        candidate({
           maintenanceRequests: [{ id: 'm1' }],
-        },
+        }),
       ]);
 
       const res = await service.runRetention(now);
 
-      expect(res).toEqual({ deleted: 0 });
-      expect(prisma.leasePartyInfo.deleteMany).not.toHaveBeenCalled();
+      expect(res).toEqual({ deleted: 0, documentsDeleted: 0 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('откладывает удаление при pending-заявке на расторжение', async () => {
+      prisma.lease.findMany.mockResolvedValue([
+        candidate({ terminationRequests: [{ id: 't1' }] }),
+      ]);
+
+      const res = await service.runRetention(now);
+
+      expect(res).toEqual({ deleted: 0, documentsDeleted: 0 });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('effectiveEndDate имеет приоритет над endDate (расторжение раньше срока)', async () => {
       prisma.lease.findMany.mockResolvedValue([
-        {
-          id: 'l1',
+        candidate({
           endDate: new Date('2029-06-01T00:00:00Z'),
           effectiveEndDate: new Date('2026-01-01T00:00:00Z'),
-          maintenanceRequests: [],
-        },
+        }),
       ]);
-      prisma.leasePartyInfo.deleteMany.mockResolvedValue({ count: 1 });
+      tx.leasePartyInfo.deleteMany.mockResolvedValue({ count: 1 });
 
       const res = await service.runRetention(now);
 
-      expect(res).toEqual({ deleted: 1 });
+      expect(res).toEqual({ deleted: 1, documentsDeleted: 0 });
+    });
+
+    it('выбирает договоры, у которых остались только документы', async () => {
+      prisma.lease.findMany.mockResolvedValue([]);
+
+      await service.runRetention(now);
+
+      expect(prisma.lease.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            status: LeaseStatus.terminated,
+            OR: [
+              { partyInfo: { some: {} } },
+              { documents: { some: {} } },
+            ],
+          },
+          select: expect.objectContaining({
+            status: true,
+            maintenanceRequests: {
+              where: {
+                status: {
+                  in: [
+                    MaintenanceStatus.open,
+                    MaintenanceStatus.in_progress,
+                  ],
+                },
+              },
+              select: { id: true },
+            },
+            terminationRequests: {
+              where: { status: TerminationStatus.pending },
+              select: { id: true },
+            },
+          }),
+        }),
+      );
     });
   });
 });

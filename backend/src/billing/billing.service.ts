@@ -130,10 +130,10 @@ export class BillingService {
     return this.reload(billId);
   }
 
-  // Финализация draft → final (кнопка доступна обеим сторонам) + создание
-  // черновика следующего периода. Ручная — планировщик отложён.
+  // Финализация draft → final доступна только собственнику (Фаза 34) +
+  // создание черновика следующего периода. Ручная — планировщик отложён.
   async finalize(userId: string, billId: string): Promise<BillView> {
-    const bill = await this.getBillAsParty(userId, billId);
+    const bill = await this.getBillAsLandlord(userId, billId);
     if (bill.stage !== BillStage.draft) {
       throw new ConflictException('Счёт уже финализирован');
     }

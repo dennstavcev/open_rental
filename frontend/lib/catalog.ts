@@ -149,8 +149,13 @@ export function listMetersForLease(leaseId: string): Promise<LeaseMetersView> {
   return apiFetch<LeaseMetersView>(`/leases/${leaseId}/meters`);
 }
 
-export function listReadingHistory(meterId: string): Promise<MeterReading[]> {
-  return apiFetch<MeterReading[]>(`/meters/${meterId}/readings`);
+export function listReadingHistory(
+  leaseId: string,
+  meterId: string,
+): Promise<MeterReading[]> {
+  return apiFetch<MeterReading[]>(
+    `/leases/${leaseId}/meters/${meterId}/readings`,
+  );
 }
 
 export function submitReading(

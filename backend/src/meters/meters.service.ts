@@ -109,7 +109,15 @@ export class MetersService {
     const meters = await this.prisma.meter.findMany({
       where: { propertyId: lease.propertyId },
       orderBy: { createdAt: 'desc' },
-      include: { readings: { orderBy: { readingDate: 'desc' }, take: 1 } },
+      include: {
+        readings: {
+          ...(lease.status === LeaseStatus.active
+            ? {}
+            : { where: { leaseId: lease.id } }),
+          orderBy: { readingDate: 'desc' },
+          take: 1,
+        },
+      },
     });
     const pendingIds = new Set(
       draft && lease.status === LeaseStatus.active

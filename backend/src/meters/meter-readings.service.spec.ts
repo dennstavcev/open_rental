@@ -1,10 +1,15 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { LeaseStatus } from '@prisma/client';
 import { MeterReadingsService } from './meter-readings.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageProvider } from '../storage/storage-provider.interface';
 import { MeterOcrProvider } from '../ocr/meter-ocr-provider.interface';
 import { BillingService } from '../billing/billing.service';
+import { LeasesService } from '../leases/leases.service';
 
 const photo = { buffer: Buffer.from('img'), mimetype: 'image/jpeg' };
 const activeLease = {
@@ -21,6 +26,7 @@ describe('MeterReadingsService', () => {
   let storage: jest.Mocked<StorageProvider>;
   let ocr: jest.Mocked<MeterOcrProvider>;
   let billing: { ensureCurrentDraft: jest.Mock; addUtilityLine: jest.Mock };
+  let leases: { getForUser: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -35,11 +41,13 @@ describe('MeterReadingsService', () => {
       ensureCurrentDraft: jest.fn().mockResolvedValue(undefined),
       addUtilityLine: jest.fn(),
     };
+    leases = { getForUser: jest.fn() };
     service = new MeterReadingsService(
       prisma as unknown as PrismaService,
       storage,
       ocr,
       billing as unknown as BillingService,
+      leases as unknown as LeasesService,
     );
   });
 
@@ -149,26 +157,91 @@ describe('MeterReadingsService', () => {
     ).rejects.toThrow();
   });
 
-  it('listForMeter отдаёт историю landlord/tenant, scoped на текущий договор (ADR-0015)', async () => {
+  it('listForLeaseMeter отдаёт собственнику историю завершённого договора', async () => {
+    leases.getForUser.mockResolvedValue({
+      ...activeLease,
+      status: LeaseStatus.terminated,
+    });
     prisma.meter.findUnique.mockResolvedValue(meter());
-    prisma.lease.findFirst.mockResolvedValue(activeLease);
     prisma.meterReading.findMany.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]);
 
-    const result = await service.listForMeter('tenant1', 'm1');
+    const result = await service.listForLeaseMeter('landlord1', 'l1', 'm1');
 
     expect(result).toHaveLength(2);
-    expect(prisma.meterReading.findMany.mock.calls[0][0].where).toEqual({
-      meterId: 'm1',
-      leaseId: 'l1',
+    expect(prisma.meterReading.findMany).toHaveBeenCalledWith({
+      where: { meterId: 'm1', leaseId: 'l1' },
+      orderBy: { readingDate: 'desc' },
     });
   });
 
-  it('listForMeter: не сторона договора → 404', async () => {
+  it('listForLeaseMeter отдаёт бывшему арендатору историю его договора', async () => {
+    leases.getForUser.mockResolvedValue({
+      ...activeLease,
+      status: LeaseStatus.terminated,
+    });
     prisma.meter.findUnique.mockResolvedValue(meter());
-    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([{ id: 'r1' }]);
+
     await expect(
-      service.listForMeter('stranger', 'm1'),
-    ).rejects.toThrow();
+      service.listForLeaseMeter('tenant1', 'l1', 'm1'),
+    ).resolves.toEqual([{ id: 'r1' }]);
+  });
+
+  it('listForLeaseMeter не принимает счётчик чужого объекта', async () => {
+    leases.getForUser.mockResolvedValue(activeLease);
+    prisma.meter.findUnique.mockResolvedValue(meter(5, { propertyId: 'p2' }));
+
+    await expect(
+      service.listForLeaseMeter('tenant1', 'l1', 'm1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.meterReading.findMany).not.toHaveBeenCalled();
+  });
+
+  it('listForLeaseMeter пробрасывает 404 для пользователя не из договора', async () => {
+    leases.getForUser.mockRejectedValue(
+      new NotFoundException('Договор не найден'),
+    );
+
+    await expect(
+      service.listForLeaseMeter('stranger', 'l1', 'm1'),
+    ).rejects.toThrow('Договор не найден');
+    expect(prisma.meter.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('listForLeaseMeter возвращает 404 для несуществующего счётчика', async () => {
+    leases.getForUser.mockResolvedValue(activeLease);
+    prisma.meter.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.listForLeaseMeter('tenant1', 'l1', 'missing'),
+    ).rejects.toThrow('Счётчик не найден');
+  });
+
+  it('listForLeaseMeter отдаёт историю отключённого счётчика', async () => {
+    leases.getForUser.mockResolvedValue(activeLease);
+    prisma.meter.findUnique.mockResolvedValue(meter(5, { isActive: false }));
+    prisma.meterReading.findMany.mockResolvedValue([{ id: 'r1' }]);
+
+    await expect(
+      service.listForLeaseMeter('tenant1', 'l1', 'm1'),
+    ).resolves.toEqual([{ id: 'r1' }]);
+  });
+
+  it('listForLeaseMeter не смешивает показания последовательных договоров', async () => {
+    leases.getForUser.mockResolvedValue({ ...activeLease, id: 'l2' });
+    prisma.meter.findUnique.mockResolvedValue(meter());
+    prisma.meterReading.findMany.mockImplementation(
+      ({ where }: { where: { leaseId: string } }) =>
+      Promise.resolve(
+        [{ id: 'r1', leaseId: 'l1' }, { id: 'r2', leaseId: 'l2' }].filter(
+          (reading) => reading.leaseId === where.leaseId,
+        ),
+      ),
+    );
+
+    await expect(
+      service.listForLeaseMeter('tenant2', 'l2', 'm1'),
+    ).resolves.toEqual([{ id: 'r2', leaseId: 'l2' }]);
   });
 
   it('readingDate в будущем → BadRequest', async () => {
