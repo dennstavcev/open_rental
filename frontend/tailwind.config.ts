@@ -39,6 +39,7 @@ const config: Config = {
           input: 'var(--surface-input)',
           hover: 'var(--surface-hover)',
           icon: 'var(--surface-icon)',
+          sticky: 'var(--surface-sticky)',
           skeleton: 'var(--surface-skeleton)',
         },
         content: {
@@ -117,6 +118,7 @@ const config: Config = {
       backgroundImage: {
         accent: 'var(--gradient-accent)',
         'app-gradient': 'var(--gradient-app)',
+        'app-shell': 'var(--gradient-app-shell)',
       },
       transitionTimingFunction: {
         standard: 'var(--ease-standard)',

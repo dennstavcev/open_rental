@@ -15,7 +15,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (loading || !user) {
     return (
-      <div data-app className="min-h-screen bg-app px-screen py-8">
+      <div data-app className="min-h-screen bg-app-shell px-screen py-8">
         <p className="text-content-muted">Загрузка…</p>
       </div>
     );

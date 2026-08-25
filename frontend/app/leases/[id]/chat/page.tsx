@@ -145,7 +145,7 @@ function ChatInner() {
           </div>
         )}
 
-        <form onSubmit={onSend} className="sticky bottom-0 mt-4 bg-app pb-2 pt-3">
+        <form onSubmit={onSend} className="sticky bottom-0 mt-4 bg-surface-sticky pb-2 pt-3 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <label
               className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-pill border border-line text-content-secondary transition-colors duration-fast hover:bg-surface-hover focus-within:ring-2 focus-within:ring-focus"

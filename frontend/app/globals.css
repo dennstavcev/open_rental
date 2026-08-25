@@ -53,6 +53,19 @@
   /* Градиент остаётся только на auth и мастере; плотные рабочие экраны
      живут на плоском кремовом фоне — иначе таблицы читаются хуже. */
   --gradient-app: linear-gradient(160deg, var(--cream-50) 0%, var(--sand-200) 100%);
+  /* Фон рабочих экранов: очень мягкий тёплый переход. Он заметно
+     «домашнее» плоской заливки, но остаётся настолько сдержанным, что
+     таблицы и суммы поверх него не теряют контраст. */
+  --gradient-app-shell: linear-gradient(
+    170deg,
+    var(--cream-50) 0%,
+    #f8f0e0 46%,
+    #f2e6d0 100%
+  );
+  /* Закреплённые поверхности (шапка, нижняя навигация, шапка таблицы)
+     стали полупрозрачными: поверх градиента сплошная заливка дала бы
+     видимый шов. */
+  --surface-sticky: rgba(251, 246, 236, 0.86);
 
   /* -- текст -- */
   --text-primary: var(--ink-950);
@@ -185,7 +198,29 @@
 .auth-shell {
   position: relative;
   min-height: 100dvh;
+  overflow: hidden;
   background: var(--gradient-app);
+}
+
+/* Фирменное фото. Слой один на обе раскладки, различаются только его
+   обработка и скрим поверх — см. медиазапросы ниже. Отрицательный inset
+   нужен, чтобы размытие не оголяло края. */
+.auth-shell::before {
+  content: '';
+  position: absolute;
+  inset: -60px;
+  background: url('/photo-interior-warm.png') center 68% / cover no-repeat;
+}
+
+.auth-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.auth-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 @media (max-width: 1023px) {
@@ -203,20 +238,10 @@
     --text-on-accent: var(--ink-950);
     --focus-ring: rgba(255, 255, 255, 0.85);
     background: #2a1e12;
-    overflow: hidden;
-  }
-  .auth-shell::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: url('/photo-interior-warm.png') center 68% / cover no-repeat;
   }
   /* Скрим снизу вверх: текст читается, фото не превращается в серую
      заливку. Коробчатая frosted-панель не используется намеренно. */
   .auth-shell::after {
-    content: '';
-    position: absolute;
-    inset: 0;
     background: linear-gradient(
       180deg,
       rgba(20, 14, 8, 0.55) 0%,
@@ -224,15 +249,30 @@
       rgba(20, 14, 8, 0.82) 100%
     );
   }
-  .auth-shell > * {
-    position: relative;
-    z-index: 1;
+}
+
+/* На десктопе фото показывается размытым: исходник 367×340px, и в резкости
+   на широком окне он рассыпается. Размытие превращает недостаток в приём —
+   интерьер читается как тёплая атмосфера за формой. Если появится
+   фотография хотя бы 2560px по ширине, размытие можно снимать, и это
+   единственное, что для этого потребуется. */
+@media (min-width: 1024px) {
+  .auth-shell::before {
+    filter: blur(22px) saturate(1.08);
+    transform: scale(1.08);
+  }
+  /* Кремовая вуаль поверх фото: карточка формы и тёмный текст на ней
+     сохраняют контраст, а тепло интерьера остаётся. */
+  .auth-shell::after {
+    background: linear-gradient(
+      160deg,
+      rgba(251, 246, 236, 0.9) 0%,
+      rgba(249, 240, 224, 0.76) 45%,
+      rgba(233, 211, 172, 0.72) 100%
+    );
   }
 }
 
-/* Базовые правила. Всё, что было ниже — 1200 строк классов прежнего
-   интерфейса — удалено вместе с последним перенесённым экраном (R3).
-   Оформление живёт в компонентах, здесь остаются только токены. */
 * {
   box-sizing: border-box;
 }

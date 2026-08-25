@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
 import { getPrivacyPolicy, PrivacyPolicy } from '@/lib/legal';
@@ -28,7 +29,7 @@ export default function PrivacyPolicyPage() {
   return (
     <div data-app className="min-h-screen bg-app text-content">
       <header className="flex items-center justify-between border-b border-line px-screen py-4">
-        <span className="text-base font-bold tracking-wide">SOFTRENT</span>
+        <Logo markSize={26} />
         <Button asChild variant="secondary" size="sm">
           <Link href="/login">Войти</Link>
         </Button>

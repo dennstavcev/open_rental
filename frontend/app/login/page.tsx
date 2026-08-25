@@ -34,7 +34,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthLayout back="/" tagline="Всё нужное — в одном окне.">
+    <AuthLayout back="/">
       <h1 className="mt-6 text-3xl font-bold tracking-tight text-content">
         Войдите в личный кабинет
       </h1>

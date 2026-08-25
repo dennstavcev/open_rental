@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { Logo } from '@/components/Logo';
 import { useAuth } from '@/lib/auth';
 
 /**
@@ -24,8 +25,7 @@ export default function Home() {
       className="flex min-h-screen flex-col items-center justify-center bg-app-gradient px-screen text-content"
     >
       <div className="flex flex-col items-center gap-3 pb-16">
-        <p className="text-2xl font-bold tracking-wide">SOFTRENT</p>
-        <p className="text-sm text-content-muted">Аренда без хлопот</p>
+        <Logo variant="lockup" className="w-44" />
         <div
           role="status"
           aria-label="Загрузка"

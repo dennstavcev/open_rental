@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { Logo } from './Logo';
 
 /**
  * Общая раскладка экранов до входа. Контекст (фото на мобильном, тёплый
@@ -9,15 +10,7 @@ import { ArrowLeft } from 'lucide-react';
  *
  * Навигации приложения тут нет: пользователь ещё не вошёл.
  */
-export function AuthLayout({
-  back,
-  tagline,
-  children,
-}: {
-  back: string;
-  tagline: string;
-  children: React.ReactNode;
-}) {
+export function AuthLayout({ back, children }: { back: string; children: React.ReactNode }) {
   return (
     <div data-app className="auth-shell flex flex-col">
       <div className="p-4">
@@ -34,8 +27,10 @@ export function AuthLayout({
           десктопе центрирована в узкой колонке. */}
       <div className="flex flex-1 flex-col justify-end px-5 pb-10 lg:justify-center lg:px-6 lg:pb-16">
         <div className="mx-auto w-full max-w-form lg:rounded-lg lg:border lg:border-line lg:bg-surface lg:p-8 lg:shadow-raised">
-          <p className="text-2xl font-bold tracking-wide text-content">SOFTRENT</p>
-          <p className="mt-1 text-sm text-content-muted">{tagline}</p>
+          {/* Лок-ап целиком — это брендовый момент, а не служебная
+              шапка: слоган здесь уместен. На фото он читается за счёт
+              светлой подложки самого знака. */}
+          <Logo variant="lockup" className="w-40 lg:w-44" />
           {children}
         </div>
       </div>

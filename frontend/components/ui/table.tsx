@@ -25,7 +25,7 @@ export const THead = forwardRef<
 >(({ className, ...props }, ref) => (
   <thead
     ref={ref}
-    className={cn('sticky top-0 z-10 bg-app', className)}
+    className={cn('sticky top-0 z-10 bg-surface-sticky backdrop-blur-md', className)}
     {...props}
   />
 ));

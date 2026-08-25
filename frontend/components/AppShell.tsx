@@ -12,6 +12,7 @@ import {
   Mail,
   type LucideIcon,
 } from 'lucide-react';
+import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth';
 import { listNotifications } from '@/lib/notifications';
 import { listInvitations } from '@/lib/leases';
@@ -101,12 +102,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div data-app className="min-h-screen bg-app text-content">
+    <div data-app className="min-h-screen bg-app-shell bg-fixed text-content">
       {/* Сайдбар — только десктоп */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-line bg-app px-4 py-5 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar flex-col border-r border-line bg-surface-sticky px-4 py-5 backdrop-blur-md lg:flex">
         <div className="px-2">
-          <span className="text-lg font-bold tracking-wide text-content">SOFTRENT</span>
-          <p className="mt-0.5 text-xs text-content-muted">Аренда без хлопот</p>
+          <Logo markSize={30} />
+          <p className="mt-1 text-xs text-content-muted">Аренда проще. Жизнь комфортнее.</p>
         </div>
 
         <nav className="mt-8 flex flex-col gap-1">
@@ -136,8 +137,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Шапка — только мобильный */}
-      <header className="sticky top-0 z-20 flex h-header items-center justify-between border-b border-line bg-app px-4 lg:hidden">
-        <span className="text-base font-bold tracking-wide text-content">SOFTRENT</span>
+      <header className="sticky top-0 z-20 flex h-header items-center justify-between border-b border-line bg-surface-sticky px-4 backdrop-blur-md lg:hidden">
+        <Logo markSize={26} />
         <button
           type="button"
           onClick={doLogout}
@@ -153,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Нижняя навигация — только мобильный */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-bottomnav items-stretch border-t border-line bg-app lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-bottomnav items-stretch border-t border-line bg-surface-sticky backdrop-blur-md lg:hidden">
         {items.map((item) => {
           const active = isActive(item.href);
           const count = item.badgeKey ? badgeCounts[item.badgeKey] : 0;

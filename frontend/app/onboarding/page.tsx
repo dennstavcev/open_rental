@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Check } from 'lucide-react';
 import { InventoryEditor } from '@/components/InventoryEditor';
+import { Logo } from '@/components/Logo';
 import {
   AddressFields,
   AddressFieldsValue,
@@ -69,7 +70,7 @@ function OnboardingInner() {
   return (
     <div data-app className="min-h-screen bg-app-gradient text-content">
       <header className="flex items-center justify-between px-screen py-4">
-        <span className="text-base font-bold tracking-wide">SOFTRENT</span>
+        <Logo markSize={26} />
         <Button asChild variant="ghost" size="sm">
           <Link href="/dashboard">Выйти из мастера</Link>
         </Button>

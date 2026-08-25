@@ -35,7 +35,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <AuthLayout back="/login" tagline="Всё нужное — в одном окне.">
+    <AuthLayout back="/login">
       <h1 className="mt-6 text-3xl font-bold tracking-tight text-content">Регистрация</h1>
 
       <form className="mt-6 space-y-4" onSubmit={onSubmit}>
