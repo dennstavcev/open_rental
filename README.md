@@ -70,6 +70,7 @@ CI (GitHub Actions, `.github/workflows/ci.yml`) прогоняет тесты б
 | [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) | Дизайн-система и спеки экранов (ведёт `designer`) |
 | [`docs/TEAM_STRUCTURE.md`](docs/TEAM_STRUCTURE.md) | Структура агентной команды (CEO + подчинённые роли) |
 | [`docs/READINESS_AUDIT.md`](docs/READINESS_AUDIT.md) | Честный аудит готовности к старту Phase 1 — что закрыто, что блокирует код |
+| [`docs/PRODUCTION_DEPLOYMENT_AND_SECURITY.md`](docs/PRODUCTION_DEPLOYMENT_AND_SECURITY.md) | Production-деплой, hardening, защита ПДн, backup/restore и security gate |
 | [`.claude/agents/`](.claude/agents/) | Определения агентов для CLI (Claude Code / Fable 5) |
 
 ## Статус
