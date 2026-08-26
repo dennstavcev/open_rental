@@ -77,6 +77,24 @@ describe('MaintenanceService', () => {
         'tenant1',
       );
     });
+
+    it('по завершённому договору не создаёт заявку и не сохраняет фото', async () => {
+      leases.getForUser.mockResolvedValue({
+        ...lease,
+        status: LeaseStatus.terminated,
+      });
+
+      await expect(
+        service.create(
+          'tenant1',
+          'l1',
+          { category: 'repair', description: 'кран течёт' },
+          { buffer: Buffer.from('img'), mimetype: 'image/jpeg' },
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.maintenanceRequest.create).not.toHaveBeenCalled();
+      expect(storage.put).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateStatus', () => {
@@ -85,6 +103,27 @@ describe('MaintenanceService', () => {
       await expect(
         service.updateStatus('tenant1', 'req1', MaintenanceStatus.in_progress),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('по завершённому договору не меняет статус заявки', async () => {
+      leases.getForUser.mockResolvedValue({
+        ...lease,
+        status: LeaseStatus.terminated,
+      });
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+      });
+
+      await expect(
+        service.updateStatus(
+          'landlord1',
+          'req1',
+          MaintenanceStatus.in_progress,
+        ),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.maintenanceRequest.update).not.toHaveBeenCalled();
+      expect(prisma.service.findUnique).not.toHaveBeenCalled();
     });
 
     it('resolved выставляет согласованную услугу и сохраняет статус', async () => {
@@ -192,6 +231,47 @@ describe('MaintenanceService', () => {
   });
 
   describe('settlement', () => {
+    it('по завершённому договору не предлагает сумму урегулирования', async () => {
+      leases.getForUser.mockResolvedValue({
+        ...lease,
+        status: LeaseStatus.terminated,
+      });
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+        settlementAppliedAt: null,
+      });
+
+      await expect(
+        service.proposeSettlement('tenant1', 'req1', {
+          amount: 4000,
+          payer: SettlementPayer.split,
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.maintenanceRequest.update).not.toHaveBeenCalled();
+    });
+
+    it('по завершённому договору не подтверждает урегулирование и не создаёт услугу', async () => {
+      leases.getForUser.mockResolvedValue({
+        ...lease,
+        status: LeaseStatus.terminated,
+      });
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+        settlementAppliedAt: null,
+        settlementAmount: 4000,
+        settlementPayer: SettlementPayer.split,
+      });
+
+      await expect(
+        service.confirmSettlement('landlord1', 'req1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.maintenanceRequest.update).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.service.create).not.toHaveBeenCalled();
+    });
+
     it('предложение подтверждается только инициатором', async () => {
       prisma.maintenanceRequest.findUnique.mockResolvedValue({
         id: 'req1',

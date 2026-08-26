@@ -109,6 +109,10 @@ describe('MetersService', () => {
     expect(prisma.meter.findMany.mock.calls[0][0].where).toEqual({
       propertyId: 'p1',
     });
+    expect(prisma.meter.findMany.mock.calls[0][0].orderBy).toEqual([
+      { isActive: 'desc' },
+      { createdAt: 'desc' },
+    ]);
     expect(result[0].lastReadingValue).toBe(250);
     expect(result[1].lastReadingValue).toBe(50);
     expect((result[0] as { readings?: unknown }).readings).toBeUndefined();
@@ -163,6 +167,10 @@ describe('MetersService', () => {
     expect(prisma.meter.findMany.mock.calls[0][0].where).toEqual({
       propertyId: 'p1',
     });
+    expect(prisma.meter.findMany.mock.calls[0][0].orderBy).toEqual([
+      { isActive: 'desc' },
+      { createdAt: 'desc' },
+    ]);
     expect(result.meters[0].currentPeriodSubmitted).toBe(true);
     expect(result.meters[1].currentPeriodSubmitted).toBe(false);
     expect(result.meters[0].readingsStatus).toBe('submitted');

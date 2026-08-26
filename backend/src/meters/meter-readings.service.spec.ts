@@ -123,6 +123,7 @@ describe('MeterReadingsService', () => {
     expect(ocr.recognize).toHaveBeenCalledWith(photo.buffer);
     expect(res.consumption).toBe(50);
     expect(res.cost).toBe(250); // 50 * 5
+    expect(res.requiresConfirmation).toBeUndefined();
     expect(billing.addUtilityLine).toHaveBeenCalledWith(
       activeLease,
       expect.objectContaining({ amount: 250, sourceRefId: 'r1' }),
@@ -132,11 +133,34 @@ describe('MeterReadingsService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('мягко предупреждает при расходе >10× среднего, но сохраняет', async () => {
+  it('аномалия без подтверждения требует второй шаг и ничего не сохраняет', async () => {
     prisma.meter.findUnique.mockResolvedValue(meter(5));
     prisma.lease.findFirst.mockResolvedValue(activeLease);
-    // Средний расход = 10 (0→10→20). Новый расход 20−... : прошлое значение 20,
-    // новое 500 → расход 480 > 10*10=100.
+    prisma.meterReading.findMany.mockResolvedValue([
+      { value: 0 },
+      { value: 10 },
+      { value: 20 },
+    ]);
+
+    const res = await service.create('tenant1', 'm1', 500, photo);
+
+    expect(res).toEqual({
+      requiresConfirmation: true,
+      consumption: 480,
+      cost: 2400,
+      previousValue: 20,
+      warning: expect.stringMatching(/10 раз/),
+    });
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(ocr.recognize).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(billing.ensureCurrentDraft).not.toHaveBeenCalled();
+    expect(billing.addUtilityLine).not.toHaveBeenCalled();
+  });
+
+  it('аномалия с подтверждением и совпавшей базой сохраняется', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
     prisma.meterReading.findMany.mockResolvedValue([
       { value: 0 },
       { value: 10 },
@@ -144,16 +168,139 @@ describe('MeterReadingsService', () => {
     ]);
     prisma.meterReading.create.mockResolvedValue({ id: 'r2' });
 
-    const res = await service.create('tenant1', 'm1', 500, photo);
+    const res = await service.create(
+      'tenant1',
+      'm1',
+      500,
+      photo,
+      undefined,
+      true,
+      20,
+    );
+
+    expect(res.requiresConfirmation).toBeUndefined();
     expect(res.warning).toMatch(/10 раз/);
-    expect(prisma.meterReading.create).toHaveBeenCalled(); // не блокирует
+    expect(prisma.meterReading.create).toHaveBeenCalled();
+    expect(billing.addUtilityLine).toHaveBeenCalled();
+  });
+
+  it('подтверждение не обходит проверку значения меньше предыдущего', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter());
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([{ value: 200 }]);
+
+    await expect(
+      service.create('tenant1', 'm1', 100, photo, undefined, true, 200),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it('подтверждение не обходит запрет отключённого счётчика', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5, { isActive: false }));
+
+    await expect(
+      service.create('tenant1', 'm1', 100, photo, undefined, true, 0),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it('подтверждение без исходного значения отклоняется без сохранения', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+
+    await expect(
+      service.create('tenant1', 'm1', 500, photo, undefined, true),
+    ).rejects.toThrow('Подтверждение без исходного значения');
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(ocr.recognize).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(billing.ensureCurrentDraft).not.toHaveBeenCalled();
+  });
+
+  it('при изменившейся базе и сохранившейся аномалии возвращает новые числа', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([
+      { value: 0 },
+      { value: 10 },
+      { value: 20 },
+      { value: 30 },
+    ]);
+
+    const res = await service.create(
+      'tenant1',
+      'm1',
+      500,
+      photo,
+      undefined,
+      true,
+      20,
+    );
+
+    expect(res).toEqual({
+      requiresConfirmation: true,
+      consumption: 470,
+      cost: 2350,
+      previousValue: 30,
+      warning: expect.stringMatching(/10 раз/),
+    });
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('при изменившейся базе и исчезнувшей аномалии требует проверить новые числа', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([
+      { value: 0 },
+      { value: 10 },
+      { value: 20 },
+      { value: 390 },
+    ]);
+
+    const res = await service.create(
+      'tenant1',
+      'm1',
+      500,
+      photo,
+      undefined,
+      true,
+      20,
+    );
+
+    expect(res).toEqual({
+      requiresConfirmation: true,
+      consumption: 110,
+      cost: 550,
+      previousValue: 390,
+      warning: null,
+    });
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('при базе выше введённого значения возвращает обычную ошибку', async () => {
+    prisma.meter.findUnique.mockResolvedValue(meter(5));
+    prisma.lease.findFirst.mockResolvedValue(activeLease);
+    prisma.meterReading.findMany.mockResolvedValue([
+      { value: 0 },
+      { value: 10 },
+      { value: 20 },
+      { value: 600 },
+    ]);
+
+    await expect(
+      service.create('tenant1', 'm1', 500, photo, undefined, true, 20),
+    ).rejects.toThrow('Новое показание не может быть меньше предыдущего');
+    expect(storage.put).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('не сторона договора → 404 (NotFound)', async () => {
     prisma.meter.findUnique.mockResolvedValue(meter());
     prisma.lease.findFirst.mockResolvedValue(activeLease);
     await expect(
-      service.create('stranger', 'm1', 100, photo),
+      service.create('stranger', 'm1', 100, photo, undefined, true, 0),
     ).rejects.toThrow();
   });
 
@@ -248,7 +395,7 @@ describe('MeterReadingsService', () => {
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     await expect(
-      service.create('tenant1', 'm1', 100, photo, tomorrow),
+      service.create('tenant1', 'm1', 100, photo, tomorrow, true, 0),
     ).rejects.toThrow('Дата показания не может быть в будущем');
     expect(prisma.meter.findUnique).not.toHaveBeenCalled();
     expect(storage.put).not.toHaveBeenCalled();

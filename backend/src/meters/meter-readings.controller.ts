@@ -45,6 +45,8 @@ export class MeterReadingsController {
       dto.confirmedValue,
       photo,
       dto.readingDate,
+      dto.confirm,
+      dto.expectedPreviousValue,
     );
   }
 }

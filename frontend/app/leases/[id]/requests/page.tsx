@@ -62,11 +62,13 @@ function RequestCard({
   req,
   isTenant,
   isLandlord,
+  readOnly,
   reload,
 }: {
   req: MaintenanceRequest;
   isTenant: boolean;
   isLandlord: boolean;
+  readOnly: boolean;
   reload: () => Promise<void>;
 }) {
   const [amount, setAmount] = useState('');
@@ -101,7 +103,7 @@ function RequestCard({
           </div>
         </div>
 
-        {isLandlord ? (
+        {isLandlord && !readOnly ? (
           <div className="max-w-xs text-right">
             <Select
               aria-label="Статус заявки"
@@ -165,7 +167,7 @@ function RequestCard({
         </div>
       )}
 
-      {!req.settlementAppliedAt && (
+      {!readOnly && !req.settlementAppliedAt && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Input
             type="number"
@@ -218,6 +220,7 @@ function RequestsInner() {
 
   const isTenant = !!lease && lease.tenantId === user?.id;
   const isLandlord = !!lease && lease.tenantId !== user?.id;
+  const archived = lease?.status === 'terminated';
 
   const load = useCallback(async () => {
     setError(null);
@@ -234,6 +237,10 @@ function RequestsInner() {
     void load();
   }, [load]);
   usePolling(load, 30000);
+
+  useEffect(() => {
+    if (archived) setShowForm(false);
+  }, [archived]);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -261,14 +268,14 @@ function RequestsInner() {
         title="Заявки"
         subtitle="Обслуживание и урегулирование"
         action={
-          isTenant && items.length > 0 ? (
+          isTenant && !archived && items.length > 0 ? (
             <Button className="hidden lg:inline-flex" onClick={() => setShowForm(true)}>
               Новая заявка
             </Button>
           ) : undefined
         }
       />
-      <LeaseTabs id={id} />
+      <LeaseTabs id={id} archived={archived} />
 
       {error && (
         <p
@@ -283,14 +290,18 @@ function RequestsInner() {
       {items.length === 0 ? (
         <EmptyState
           icon={Wrench}
-          title="Заявок пока нет"
+          title={archived ? 'Заявок не было' : 'Заявок пока нет'}
           text={
-            isTenant
+            archived
+              ? undefined
+              : isTenant
               ? 'Создайте заявку, если что-то требует ремонта или внимания.'
               : 'Заявки создаёт арендатор.'
           }
           action={
-            isTenant ? <Button onClick={() => setShowForm(true)}>Новая заявка</Button> : undefined
+            isTenant && !archived ? (
+              <Button onClick={() => setShowForm(true)}>Новая заявка</Button>
+            ) : undefined
           }
         />
       ) : (
@@ -301,17 +312,18 @@ function RequestsInner() {
               req={req}
               isTenant={isTenant}
               isLandlord={isLandlord}
+              readOnly={!lease || archived}
               reload={load}
             />
           ))}
         </div>
       )}
 
-      {isTenant && items.length > 0 && (
+      {isTenant && !archived && items.length > 0 && (
         <Fab label="Новая заявка" onClick={() => setShowForm(true)} />
       )}
 
-      <Dialog open={showForm} onOpenChange={setShowForm}>
+      <Dialog open={showForm && !!lease && !archived} onOpenChange={setShowForm}>
         <DialogContent title="Новая заявка">
           <form onSubmit={onCreate} className="space-y-4">
             <div className="space-y-1.5">

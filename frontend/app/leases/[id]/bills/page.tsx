@@ -39,6 +39,8 @@ function BillsInner() {
   const [lease, setLease] = useState<Lease | null>(null);
   const [bills, setBills] = useState<BillView[]>([]);
   const [payout, setPayout] = useState<PayoutDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sheetBill, setSheetBill] = useState<string | null>(null);
@@ -54,9 +56,13 @@ function BillsInner() {
 
   const isLandlord = !!lease && lease.tenantId !== user?.id;
   const isTenant = !!lease && lease.tenantId === user?.id;
+  const archived = lease?.status === 'terminated';
 
-  const load = useCallback(async () => {
-    setError(null);
+  const load = useCallback(async (foreground = false) => {
+    if (foreground) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [l, b, p] = await Promise.all([
         getLease(id),
@@ -66,22 +72,29 @@ function BillsInner() {
       setLease(l);
       setBills(b);
       setPayout(p);
+      setLoaded(true);
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
+    } finally {
+      if (foreground) setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
-  usePolling(load, 30000);
+  const refresh = useCallback(() => {
+    void load(false);
+  }, [load]);
+  usePolling(refresh, 30000);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
       await action();
-      await load();
+      await load(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка операции');
     } finally {
@@ -158,6 +171,30 @@ function BillsInner() {
       ].filter((r) => r.value)
     : [];
 
+  const roleKnown = loaded && !!lease && !!user;
+  const actionBills = roleKnown
+    ? bills
+        .filter((view) =>
+          isLandlord
+            ? view.bill.stage === 'draft' ||
+              view.bill.paymentStatus === 'payment_claimed'
+            : view.bill.stage === 'final' &&
+              view.bill.paymentStatus === 'pending' &&
+              view.totalDue > 0,
+        )
+        .sort(
+          (a, b) =>
+            Number(b.overdue) - Number(a.overdue) ||
+            a.bill.periodStart.localeCompare(b.bill.periodStart),
+        )
+    : [];
+  const actionBillIds = new Set(actionBills.map(({ bill }) => bill.id));
+  const historyBills = roleKnown
+    ? bills
+        .filter(({ bill }) => !actionBillIds.has(bill.id))
+        .sort((a, b) => b.bill.periodStart.localeCompare(a.bill.periodStart))
+    : [];
+
   return (
     <AppShell>
       <PageHeader
@@ -166,9 +203,24 @@ function BillsInner() {
         title="Счета"
         subtitle="Расчётные периоды и оплата"
       />
-      <LeaseTabs id={id} />
+      <LeaseTabs id={id} archived={archived} />
 
-      {error && (
+      {error && !loaded && (
+        <div
+          role="alert"
+          className="mb-6 rounded-md border border-danger-line bg-danger-weak px-4 py-4 text-danger"
+        >
+          <p className="flex items-center gap-2 text-sm">
+            <AlertTriangle aria-hidden className="size-4 shrink-0" />
+            {error}
+          </p>
+          <Button className="mt-3" variant="secondary" onClick={() => void load(true)}>
+            Повторить
+          </Button>
+        </div>
+      )}
+
+      {error && loaded && (
         <p
           role="alert"
           className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
@@ -178,6 +230,10 @@ function BillsInner() {
         </p>
       )}
 
+      {error && !loaded ? null : loading && !loaded ? (
+        <p className="text-content-muted">Загрузка…</p>
+      ) : roleKnown ? (
+      <>
       {/* Реквизиты — слева отдельной колонкой: на десктопе арендатор
           держит их перед глазами, пока разбирается со счётом. */}
       <div className="lg:grid lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start lg:gap-10">
@@ -233,19 +289,44 @@ function BillsInner() {
         </div>
 
         <div className="mt-8 lg:mt-0">
-          {!lease ? (
-            <p className="text-content-muted">Загрузка…</p>
-          ) : bills.length === 0 ? (
+          {bills.length === 0 ? (
             <EmptyState
               icon={Wallet}
               title="Счетов пока нет"
               text="Текущий счёт создаётся автоматически, когда договор активен."
             />
           ) : (
-            <div className="divide-y divide-line border-t border-line">
-              {bills.map(({ bill, total, accruedPenalty, totalDue, overdue }) => {
+            <>
+              {[
+                { title: 'Требуют действия', items: actionBills },
+                { title: 'История', items: historyBills },
+              ]
+                .filter(({ items }) => items.length > 0)
+                .map(({ title, items }) => (
+                  <Section key={title} title={title} className="first:mt-0">
+                    <div className="divide-y divide-line border-t border-line">
+              {items.map(({ bill, total, accruedPenalty, totalDue, overdue }) => {
                 const unpaid = bill.stage === 'final' && bill.paymentStatus !== 'paid';
-                const payable = unpaid && totalDue > 0;
+                const tenantCanClaim =
+                  bill.stage === 'final' &&
+                  (bill.paymentStatus === 'pending' ||
+                    bill.paymentStatus === 'payment_claimed') &&
+                  totalDue > 0;
+                const landlordCanConfirm =
+                  bill.stage === 'final' &&
+                  bill.paymentStatus !== 'paid' &&
+                  totalDue > 0;
+                const landlordCanWaivePenalty =
+                  bill.stage === 'final' &&
+                  bill.paymentStatus !== 'paid' &&
+                  !bill.penaltyWaived &&
+                  accruedPenalty > 0;
+                const amountLabel =
+                  bill.stage === 'draft'
+                    ? 'предварительно'
+                    : bill.paymentStatus === 'paid'
+                      ? 'оплачено'
+                      : 'к оплате';
                 return (
                   <article key={bill.id} className="py-6">
                     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -282,13 +363,9 @@ function BillsInner() {
                               : 'text-content'
                         }`}
                       >
-                        {totalDue === 0
-                          ? `К оплате: ${formatMoney(totalDue)} ₽`
-                          : `${formatMoney(totalDue)} ₽`}
+                        {formatMoney(totalDue)} ₽
                       </span>
-                      {totalDue !== 0 && (
-                        <span className="text-sm text-content-muted">к оплате</span>
-                      )}
+                      <span className="text-sm text-content-muted">{amountLabel}</span>
                     </p>
 
                     <dl className="mt-4 border-t border-line pt-3">
@@ -328,7 +405,7 @@ function BillsInner() {
                     )}
 
                     <div className="mt-4 flex flex-wrap gap-3">
-                      {bill.stage === 'draft' && isLandlord && (
+                      {bill.stage === 'draft' && isLandlord && !archived && (
                         <>
                           <Button
                             disabled={busy}
@@ -345,40 +422,46 @@ function BillsInner() {
                           </Button>
                         </>
                       )}
-                      {payable && isTenant && (
+                      {tenantCanClaim && isTenant && (
                         <Button disabled={busy} onClick={() => setClaimBill(bill.id)}>
                           {bill.paymentProof ? 'Заменить чек' : 'Я оплатил'}
                         </Button>
                       )}
-                      {payable && isLandlord && (
-                        <>
-                          <Button
-                            disabled={busy}
-                            onClick={() => run(() => confirmPaid(bill.id))}
-                          >
-                            Оплата получена
-                          </Button>
-                          {accruedPenalty > 0 && !bill.penaltyWaived && (
-                            <Button
-                              variant="secondary"
-                              disabled={busy}
-                              onClick={() => run(() => waivePenalty(bill.id))}
-                            >
-                              Простить пеню
-                            </Button>
-                          )}
-                        </>
+                      {landlordCanConfirm && isLandlord && (
+                        <Button
+                          disabled={busy}
+                          onClick={() => run(() => confirmPaid(bill.id))}
+                        >
+                          Оплата получена
+                        </Button>
+                      )}
+                      {landlordCanWaivePenalty && isLandlord && (
+                        <Button
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() => run(() => waivePenalty(bill.id))}
+                        >
+                          Простить пеню
+                        </Button>
                       )}
                     </div>
                   </article>
                 );
               })}
-            </div>
+                    </div>
+                  </Section>
+                ))}
+            </>
           )}
         </div>
       </div>
+      </>
+      ) : null}
 
-      <Dialog open={sheetBill !== null} onOpenChange={(open) => !open && setSheetBill(null)}>
+      <Dialog
+        open={sheetBill !== null && !archived}
+        onOpenChange={(open) => !open && setSheetBill(null)}
+      >
         <DialogContent title="Добавить статью">
           <form onSubmit={onAddLine} className="space-y-4">
             <div className="space-y-1.5">

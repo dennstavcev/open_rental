@@ -29,6 +29,7 @@ import { ApiError } from '@/lib/api';
 import {
   cancelLeaseInvitation,
   confirmReturnAct,
+  downloadSignedScan,
   generateDocument,
   generateHandoverAct,
   generateReturnAct,
@@ -142,7 +143,11 @@ function LeaseDetailInner() {
       setReturnItems(inventory);
       setItemsCount(inventory.length);
       setPiStatus(await getPartyInfoStatus(id).catch(() => null));
-      if (l.status === 'sent' || l.status === 'active') {
+      if (
+        l.status === 'sent' ||
+        l.status === 'active' ||
+        l.status === 'terminated'
+      ) {
         setScans(await listSignedScans(id));
       }
       try {
@@ -303,6 +308,16 @@ function LeaseDetailInner() {
     }
   }
 
+  async function openSignedScan(scanId: string) {
+    setError(null);
+    try {
+      const blob = await downloadSignedScan(id, scanId);
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось открыть скан');
+    }
+  }
+
   // Генерация документов и правка описи — только собственник (эндпоинты
   // landlord-only), причём опись — только пока договор черновик.
   const isLandlord = !!lease && !!user && lease.landlordId === user.id;
@@ -360,7 +375,10 @@ function LeaseDetailInner() {
             action={<LeaseStatusPill status={lease.status} />}
           />
 
-          {lease.status === 'active' && lease.tenantId && <LeaseTabs id={id} />}
+          {(lease.status === 'active' || lease.status === 'terminated') &&
+            lease.tenantId && (
+              <LeaseTabs id={id} archived={lease.status === 'terminated'} />
+            )}
 
           {/* Десктоп: условия и статус сторон слева фиксированной колонкой,
               документы и сканы — справа. Одной узкой колонкой этот экран
@@ -721,11 +739,14 @@ function LeaseDetailInner() {
                 </Section>
               )}
 
-              {(lease.status === 'sent' || lease.status === 'active') && (
+              {(lease.status === 'sent' ||
+                lease.status === 'active' ||
+                lease.status === 'terminated') && (
                 <Section title="Подписанные сканы">
                   <p className="mb-3 max-w-prose text-sm text-content-muted">
-                    Распечатайте текст, подпишите обеими сторонами и загрузите сканы.
-                    Договор активируется автоматически, когда сканы загрузят оба.
+                    {lease.status === 'terminated'
+                      ? 'Подписанные сторонами экземпляры завершённого договора.'
+                      : 'Распечатайте текст, подпишите обеими сторонами и загрузите сканы. Договор активируется автоматически, когда сканы загрузят оба.'}
                   </p>
                   <List>
                     {(['landlord', 'tenant'] as const).map((role) => {
@@ -739,6 +760,7 @@ function LeaseDetailInner() {
                           subtitle={
                             scan ? `Загружен ${scan.confirmedAt.slice(0, 10)}` : 'Ожидается скан'
                           }
+                          onClick={scan ? () => void openSignedScan(scan.id) : undefined}
                         />
                       );
                     })}

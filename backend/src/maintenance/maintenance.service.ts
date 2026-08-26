@@ -55,6 +55,11 @@ export class MaintenanceService {
     if (lease.tenantId !== userId) {
       throw new ForbiddenException('Заявку может создать только арендатор');
     }
+    if (lease.status !== LeaseStatus.active) {
+      throw new ConflictException(
+        'Договор не действует — новые заявки недоступны',
+      );
+    }
 
     let photoStorageKey: string | undefined;
     if (photo) {
@@ -102,16 +107,16 @@ export class MaintenanceService {
     if (lease.landlordId !== userId) {
       throw new ForbiddenException('Статус меняет только собственник');
     }
+    if (lease.status !== LeaseStatus.active) {
+      throw new ConflictException(
+        'Договор не действует — заявку нельзя изменить',
+      );
+    }
     if (status === MaintenanceStatus.resolved) {
       const service = await this.prisma.service.findUnique({
         where: { sourceRequestId: request.id },
       });
       if (service && service.billedAt === null) {
-        if (lease.status !== LeaseStatus.active) {
-          throw new ConflictException(
-            'Договор не действует — сумму по заявке нельзя выставить в счёт',
-          );
-        }
         // Только заявка с неоплаченной услугой требует текущий черновик.
         await this.billing.ensureCurrentDraft(lease);
         return this.billing.resolveRequestWithService(lease, request, service);
@@ -131,6 +136,11 @@ export class MaintenanceService {
     dto: ProposeSettlementDto,
   ): Promise<MaintenanceRequest> {
     const { request, lease } = await this.load(userId, id);
+    if (lease.status !== LeaseStatus.active) {
+      throw new ConflictException(
+        'Договор не действует — сумму по заявке нельзя предложить',
+      );
+    }
     if (request.settlementAppliedAt) {
       throw new ConflictException('Сумма уже согласована и применена');
     }
@@ -153,6 +163,11 @@ export class MaintenanceService {
     id: string,
   ): Promise<MaintenanceRequest> {
     const { request, lease } = await this.load(userId, id);
+    if (lease.status !== LeaseStatus.active) {
+      throw new ConflictException(
+        'Договор не действует — сумму по заявке нельзя согласовать',
+      );
+    }
     if (request.settlementAppliedAt) {
       throw new ConflictException('Сумма уже согласована и применена');
     }

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { AlertTriangle, Copy, Gauge } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
 import { EmptyState } from '@/components/EmptyState';
+import { LeaseTabs } from '@/components/LeaseTabs';
 import { List, Row } from '@/components/List';
 import { PageHeader } from '@/components/PageHeader';
 import { RequireAuth } from '@/components/RequireAuth';
@@ -13,9 +14,11 @@ import { ApiError } from '@/lib/api';
 import { copyText } from '@/lib/clipboard';
 import { listReadingHistory, MeterReading } from '@/lib/catalog';
 import { formatReadingForCopy } from '@/lib/format';
+import { getLease, Lease } from '@/lib/leases';
 
 function MeterHistoryInner() {
   const { id, meterId } = useParams<{ id: string; meterId: string }>();
+  const [lease, setLease] = useState<Lease | null>(null);
   const [readings, setReadings] = useState<MeterReading[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +27,12 @@ function MeterHistoryInner() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      setReadings(await listReadingHistory(id, meterId));
+      const [nextLease, nextReadings] = await Promise.all([
+        getLease(id),
+        listReadingHistory(id, meterId),
+      ]);
+      setLease(nextLease);
+      setReadings(nextReadings);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     } finally {
@@ -53,6 +61,9 @@ function MeterHistoryInner() {
         backLabel="Показания"
         title="История показаний"
       />
+      {lease && (
+        <LeaseTabs id={id} archived={lease.status === 'terminated'} />
+      )}
 
       {error && (
         <p

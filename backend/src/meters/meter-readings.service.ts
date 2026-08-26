@@ -30,13 +30,22 @@ export interface ReadingPhoto {
   mimetype: string;
 }
 
-export interface ReadingResult {
-  reading: MeterReading;
-  consumption: number;
-  cost: number;
-  // Мягкое предупреждение (расход > 10× среднего) — не блокирует сохранение.
-  warning: string | null;
-}
+export type ReadingResult =
+  | {
+      requiresConfirmation: true;
+      consumption: number;
+      cost: number;
+      previousValue: number;
+      // null — аномалия исчезла после пересчёта, но числа изменились.
+      warning: string | null;
+    }
+  | {
+      requiresConfirmation?: false;
+      reading: MeterReading;
+      consumption: number;
+      cost: number;
+      warning: string | null;
+    };
 
 @Injectable()
 export class MeterReadingsService {
@@ -54,6 +63,8 @@ export class MeterReadingsService {
     confirmedValue: number,
     photo: ReadingPhoto,
     readingDate?: string,
+    confirm?: boolean,
+    expectedPreviousValue?: number,
   ): Promise<ReadingResult> {
     const ext = ALLOWED_PHOTO[photo.mimetype];
     if (!ext) {
@@ -86,6 +97,9 @@ export class MeterReadingsService {
     if (lease.landlordId !== userId && lease.tenantId !== userId) {
       throw new NotFoundException('Счётчик не найден');
     }
+    if (confirm && expectedPreviousValue === undefined) {
+      throw new BadRequestException('Подтверждение без исходного значения');
+    }
 
     // Прошлые показания счётчика (для валидации и среднего расхода).
     const prior = await this.prisma.meterReading.findMany({
@@ -106,6 +120,27 @@ export class MeterReadingsService {
     const consumption = round2(confirmedValue - previousValue);
 
     const warning = this.consumptionWarning(prior, consumption);
+    const cost = round2(consumption * toNumber(meter.tariff));
+
+    if (confirm && expectedPreviousValue !== previousValue) {
+      return {
+        requiresConfirmation: true,
+        consumption,
+        cost,
+        previousValue,
+        warning,
+      };
+    }
+
+    if (warning && !confirm) {
+      return {
+        requiresConfirmation: true,
+        consumption,
+        cost,
+        previousValue,
+        warning,
+      };
+    }
 
     // OCR только подсказывает; сохраняем то, что вернул движок (в MVP замокан).
     const ocrValue = await this.ocr.recognize(photo.buffer);
@@ -113,7 +148,6 @@ export class MeterReadingsService {
     const storageKey = `meters/${meterId}/reading-${randomUUID()}.${ext}`;
     await this.storage.put(storageKey, photo.buffer, photo.mimetype);
 
-    const cost = round2(consumption * toNumber(meter.tariff));
     await this.billing.ensureCurrentDraft(lease);
     const reading = await this.prisma.$transaction(async (tx) => {
       const created = await tx.meterReading.create({

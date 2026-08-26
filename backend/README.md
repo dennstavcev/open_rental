@@ -161,8 +161,18 @@ PDF-рендер (Puppeteer) отложен — HTML print-ready
 
 | Метод | Путь | Описание |
 |---|---|---|
-| POST | `/api/meters/:meterId/readings` | Подать показание (multipart: `photo` JPEG/PNG обязательно + `confirmedValue`, `readingDate?`). OCR (`MeterOcrProvider`) в MVP замокан; валидация: новое ≥ предыдущего, мягкое предупреждение при расходе >10× среднего. Добавляет коммунальную строку в текущий черновик счёта |
+| POST | `/api/meters/:meterId/readings` | Подать показание (multipart: `photo` JPEG/PNG обязательно + `confirmedValue`, `readingDate?`, `confirm?`, `expectedPreviousValue?`). Обычный расход сразу создаёт показание и коммунальную строку; расход >10× среднего сначала требует подтверждения |
 | GET | `/api/leases/:leaseId/meters/:meterId/readings` | История показаний указанного договора для landlord/tenant, включая завершённый договор и отключённый счётчик |
+
+При аномальном расходе первый `POST` без `confirm` отвечает
+`{ requiresConfirmation: true, consumption, cost, previousValue, warning }`
+и ничего не сохраняет. Повторный запрос отправляет те же
+`photo`/`confirmedValue`, строку `confirm=true` и обязательный
+`expectedPreviousValue` из первого ответа. Если за это время база изменилась,
+сервер снова отвечает `requiresConfirmation` с пересчитанными значениями;
+`warning: null` означает, что аномалия исчезла, но новые числа всё равно
+нужно проверить. При совпавшей базе подтверждённое показание сохраняется как
+обычно.
 
 Планировщик авто-периодов (BullMQ), реальный Tesseract OCR и уведомления
 — следующие инкременты (см. `docs/CHANGELOG.md`).

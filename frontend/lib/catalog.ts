@@ -39,12 +39,21 @@ export interface Meter {
   readingsStatus?: ReadingsStatus;
 }
 
-export interface ReadingResult {
-  reading: { id: string; value: string };
-  consumption: number;
-  cost: number;
-  warning: string | null;
-}
+export type ReadingResult =
+  | {
+      requiresConfirmation: true;
+      consumption: number;
+      cost: number;
+      previousValue: number;
+      warning: string | null;
+    }
+  | {
+      requiresConfirmation?: false;
+      reading: { id: string; value: string };
+      consumption: number;
+      cost: number;
+      warning: string | null;
+    };
 
 export interface MeterReading {
   id: string;
@@ -162,10 +171,16 @@ export function submitReading(
   meterId: string,
   confirmedValue: number,
   photo: File,
+  confirm = false,
+  expectedPreviousValue?: number,
 ): Promise<ReadingResult> {
   const form = new FormData();
   form.append('photo', photo);
   form.append('confirmedValue', String(confirmedValue));
+  if (confirm) form.append('confirm', 'true');
+  if (expectedPreviousValue !== undefined) {
+    form.append('expectedPreviousValue', String(expectedPreviousValue));
+  }
   return apiFetch(`/meters/${meterId}/readings`, {
     method: 'POST',
     body: form,

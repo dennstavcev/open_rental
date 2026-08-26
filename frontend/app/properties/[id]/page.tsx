@@ -65,6 +65,14 @@ type SheetKind =
   | 'editMeter'
   | 'lease';
 
+type PendingReading = {
+  consumption: number;
+  cost: number;
+  previousValue: number;
+  warning: string | null;
+  photo: File;
+};
+
 function PropertyDetailInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -111,6 +119,8 @@ function PropertyDetailInner() {
 
   const [readMeterId, setReadMeterId] = useState('');
   const [readValue, setReadValue] = useState('');
+  const [readPending, setReadPending] = useState<PendingReading | null>(null);
+  const [readPendingChanged, setReadPendingChanged] = useState(false);
   const readFileRef = useRef<HTMLInputElement>(null);
   const [readMsg, setReadMsg] = useState<string | null>(null);
   const selectedMeter = meters.find((m) => m.id === readMeterId) ?? null;
@@ -150,6 +160,12 @@ function PropertyDetailInner() {
   }, [load]);
 
   function closeSheet() {
+    if (sheet === 'reading') {
+      setReadPending(null);
+      setReadPendingChanged(false);
+      setReadValue('');
+      if (readFileRef.current) readFileRef.current.value = '';
+    }
     setSheet(null);
     setError(null);
   }
@@ -240,6 +256,8 @@ function PropertyDetailInner() {
   function openReadingSheet() {
     const initialId = readMeterId || meters[0]?.id || '';
     selectMeterForReading(initialId);
+    setReadPending(null);
+    setReadPendingChanged(false);
     setSheet('reading');
   }
 
@@ -251,6 +269,11 @@ function PropertyDetailInner() {
     setError(null);
     try {
       const r = await submitReading(readMeterId, Number(readValue), photo);
+      if (r.requiresConfirmation) {
+        setReadPending({ ...r, photo });
+        setReadPendingChanged(false);
+        return;
+      }
       setReadMsg(
         `Принято: расход ${r.consumption}, начислено ${formatMoney(r.cost)} ₽` +
           (r.warning ? ` — ${r.warning}` : ''),
@@ -260,6 +283,38 @@ function PropertyDetailInner() {
       closeSheet();
       await load();
     } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmReading() {
+    if (!readPending || !readMeterId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await submitReading(
+        readMeterId,
+        Number(readValue),
+        readPending.photo,
+        true,
+        readPending.previousValue,
+      );
+      if (r.requiresConfirmation) {
+        setReadPending({ ...r, photo: readPending.photo });
+        setReadPendingChanged(true);
+        return;
+      }
+      setReadMsg(
+        `Принято: расход ${r.consumption}, начислено ${formatMoney(r.cost)} ₽` +
+          (r.warning ? ` — ${r.warning}` : ''),
+      );
+      closeSheet();
+      await load();
+    } catch (err) {
+      setReadPending(null);
+      setReadPendingChanged(false);
       setError(err instanceof ApiError ? err.message : 'Ошибка');
     } finally {
       setBusy(false);
@@ -881,7 +936,62 @@ function PropertyDetailInner() {
 
       <Dialog open={sheet === 'reading'} onOpenChange={(open) => !open && closeSheet()}>
         <DialogContent title="Показание счётчика">
-          <form onSubmit={onSubmitReading} className="space-y-4">
+          {readPending ? (
+            <div className="space-y-4">
+              <p
+                className={`flex items-center gap-2 rounded-md px-4 py-3 text-sm ${
+                  readPending.warning
+                    ? 'border border-warn-line bg-warn-weak text-warn'
+                    : 'border border-line bg-surface-icon text-content-secondary'
+                }`}
+              >
+                <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                {readPending.warning === null
+                  ? 'Показания изменились — проверьте расход'
+                  : readPendingChanged
+                    ? 'Показания изменились, проверьте ещё раз'
+                    : readPending.warning}
+              </p>
+              <dl className="rounded-md border border-line px-4 py-3 text-sm">
+                <div className="flex justify-between gap-4 py-1">
+                  <dt className="text-content-muted">Показание</dt>
+                  <dd className="font-semibold text-content">
+                    {readValue}
+                    {selectedMeter ? ` ${METER_UNIT_LABEL[selectedMeter.meterType]}` : ''}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4 py-1">
+                  <dt className="text-content-muted">Расход</dt>
+                  <dd className="font-semibold text-content">
+                    {readPending.consumption}
+                    {selectedMeter ? ` ${METER_UNIT_LABEL[selectedMeter.meterType]}` : ''}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-4 py-1">
+                  <dt className="text-content-muted">Сумма</dt>
+                  <dd className="font-bold text-terracotta-500">
+                    {formatMoney(readPending.cost)} ₽
+                  </dd>
+                </div>
+              </dl>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setReadPending(null);
+                    setReadPendingChanged(false);
+                  }}
+                >
+                  Исправить
+                </Button>
+                <Button type="button" disabled={busy} onClick={() => void onConfirmReading()}>
+                  {busy ? 'Сохранение…' : 'Всё верно, сохранить'}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <form onSubmit={onSubmitReading} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="r-meter">Счётчик</Label>
               <Select
@@ -966,7 +1076,8 @@ function PropertyDetailInner() {
                 Отправить
               </Button>
             </DialogFooter>
-          </form>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </AppShell>

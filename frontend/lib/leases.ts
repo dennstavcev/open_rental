@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, apiFetchBlob } from './api';
 
 export type LeaseStatus = 'draft' | 'sent' | 'active' | 'terminated';
 export type InventoryReturnStatus = 'ok' | 'damaged' | 'missing';
@@ -253,6 +253,15 @@ export function getHandoverAct(id: string): Promise<LeaseDocument> {
 
 export function listSignedScans(id: string): Promise<LeaseSignedScan[]> {
   return apiFetch<LeaseSignedScan[]>(`/leases/${id}/signed-scans`);
+}
+
+export function downloadSignedScan(
+  leaseId: string,
+  scanId: string,
+): Promise<Blob> {
+  return apiFetchBlob(
+    `/leases/${leaseId}/signed-scans/${scanId}/file`,
+  );
 }
 
 export function uploadSignedScan(

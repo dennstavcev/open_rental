@@ -16,9 +16,11 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { listMetersForLease, submitReading, Meter, METER_UNIT_LABEL } from '@/lib/catalog';
 import { copyText } from '@/lib/clipboard';
-import { formatReadingForCopy } from '@/lib/format';
+import { formatMoney, formatReadingForCopy } from '@/lib/format';
+import { getLease, Lease } from '@/lib/leases';
 import { usePolling } from '@/lib/usePolling';
 
 const METER_ICON: Record<Meter['meterType'], LucideIcon> = {
@@ -28,46 +30,90 @@ const METER_ICON: Record<Meter['meterType'], LucideIcon> = {
   heating: Flame,
 };
 
+type PendingReading = {
+  consumption: number;
+  cost: number;
+  previousValue: number;
+  warning: string | null;
+  photo: File;
+};
+
 function MetersHubInner() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const [lease, setLease] = useState<Lease | null>(null);
   const [meters, setMeters] = useState<Meter[]>([]);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
   const [readingsDueDate, setReadingsDueDate] = useState('');
   const [readingsDaysLeft, setReadingsDaysLeft] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   const [readMeter, setReadMeter] = useState<Meter | null>(null);
   const [readValue, setReadValue] = useState('');
+  const [pending, setPending] = useState<PendingReading | null>(null);
+  const [pendingChanged, setPendingChanged] = useState(false);
   const readFileRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
+  const archived = lease?.status === 'terminated';
+  const isLandlord = !!lease && lease.tenantId !== user?.id;
+
+  const load = useCallback(async (foreground = false) => {
+    if (foreground) {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      const view = await listMetersForLease(id);
+      const [nextLease, view] = await Promise.all([
+        getLease(id),
+        listMetersForLease(id),
+      ]);
+      setLease(nextLease);
       setMeters(view.meters);
       setPeriodStart(view.periodStart.slice(0, 10));
       setPeriodEnd(view.periodEnd.slice(0, 10));
       setReadingsDueDate(view.readingsDueDate.slice(0, 10));
       setReadingsDaysLeft(view.readingsDaysLeft);
+      setLoaded(true);
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
-  usePolling(load, 30000);
+  const refresh = useCallback(() => {
+    void load(false);
+  }, [load]);
+  usePolling(refresh, 30000);
+
+  function closeReading() {
+    setReadMeter(null);
+    setReadValue('');
+    setPending(null);
+    setPendingChanged(false);
+    if (readFileRef.current) readFileRef.current.value = '';
+  }
+
+  useEffect(() => {
+    if (archived && readMeter) closeReading();
+    // Диалог закрывается именно при смене статуса после polling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archived]);
 
   function openReading(m: Meter) {
     setReadMeter(m);
     setReadValue(String(m.lastReadingValue));
+    setPending(null);
+    setPendingChanged(false);
   }
 
   async function onSubmitReading(e: FormEvent) {
@@ -77,12 +123,43 @@ function MetersHubInner() {
     setBusy(true);
     setError(null);
     try {
-      await submitReading(readMeter.id, Number(readValue), photo);
-      setReadMeter(null);
-      setReadValue('');
-      if (readFileRef.current) readFileRef.current.value = '';
-      await load();
+      const result = await submitReading(readMeter.id, Number(readValue), photo);
+      if (result.requiresConfirmation) {
+        setPending({ ...result, photo });
+        setPendingChanged(false);
+        return;
+      }
+      closeReading();
+      await load(false);
     } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Ошибка отправки');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmReading() {
+    if (!pending || !readMeter) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await submitReading(
+        readMeter.id,
+        Number(readValue),
+        pending.photo,
+        true,
+        pending.previousValue,
+      );
+      if (result.requiresConfirmation) {
+        setPending({ ...result, photo: pending.photo });
+        setPendingChanged(true);
+        return;
+      }
+      closeReading();
+      await load(false);
+    } catch (err) {
+      setPending(null);
+      setPendingChanged(false);
       setError(err instanceof ApiError ? err.message : 'Ошибка отправки');
     } finally {
       setBusy(false);
@@ -107,9 +184,24 @@ function MetersHubInner() {
         title="Показания"
         subtitle="Счётчики по этому договору"
       />
-      <LeaseTabs id={id} />
+      <LeaseTabs id={id} archived={archived} />
 
-      {error && (
+      {error && !loaded && (
+        <div
+          role="alert"
+          className="mb-6 rounded-md border border-danger-line bg-danger-weak px-4 py-4 text-danger"
+        >
+          <p className="flex items-center gap-2 text-sm">
+            <AlertTriangle aria-hidden className="size-4 shrink-0" />
+            {error}
+          </p>
+          <Button className="mt-3" variant="secondary" onClick={() => void load(true)}>
+            Повторить
+          </Button>
+        </div>
+      )}
+
+      {error && loaded && (
         <p
           role="alert"
           className="mb-4 flex items-center gap-2 rounded-md border border-danger-line bg-danger-weak px-4 py-3 text-sm text-danger"
@@ -121,7 +213,7 @@ function MetersHubInner() {
 
       {/* Срок текущего периода — общий для всех счётчиков, поэтому вынесен
           из карточек наверх: это главное, что нужно знать арендатору. */}
-      {!loading && meters.length > 0 && (
+      {loaded && !archived && meters.length > 0 && (
         <p
           className={`mb-6 flex items-center gap-3 rounded-md px-4 py-3 text-sm ${
             readingsDaysLeft < 0
@@ -140,15 +232,19 @@ function MetersHubInner() {
         </p>
       )}
 
-      {loading ? (
+      {error && !loaded ? null : loading && !loaded ? (
         <p className="text-content-muted">Загрузка…</p>
-      ) : meters.length === 0 ? (
+      ) : loaded && meters.length === 0 ? (
         <EmptyState
           icon={Gauge}
           title="Счётчиков пока нет"
-          text="Собственник ещё не добавил счётчики по этому объекту."
+          text={
+            isLandlord
+              ? 'Добавьте счётчики на карточке объекта — тогда показания будут попадать в счёт автоматически.'
+              : 'Собственник ещё не добавил счётчики по этому объекту.'
+          }
         />
-      ) : (
+      ) : loaded ? (
         <div className="divide-y divide-line border-y border-line">
           {meters.map((m) => {
             const Icon = METER_ICON[m.meterType];
@@ -216,7 +312,7 @@ function MetersHubInner() {
                   <Button asChild variant="secondary" size="sm">
                     <Link href={`/leases/${id}/meters/${m.id}/history`}>История</Link>
                   </Button>
-                  {m.isActive && !m.currentPeriodSubmitted && (
+                  {!archived && m.isActive && !m.currentPeriodSubmitted && (
                     <Button size="sm" onClick={() => openReading(m)}>
                       Внести
                     </Button>
@@ -226,57 +322,112 @@ function MetersHubInner() {
             );
           })}
         </div>
-      )}
+      ) : null}
 
-      <Dialog open={readMeter !== null} onOpenChange={(open) => !open && setReadMeter(null)}>
+      <Dialog open={readMeter !== null && !archived} onOpenChange={(open) => !open && closeReading()}>
         {readMeter && (
           <DialogContent title={`Показание · ${readMeter.name}`}>
-            <form onSubmit={onSubmitReading} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="reading">
-                  Новое показание, {METER_UNIT_LABEL[readMeter.meterType]}
-                </Label>
-                <Input
-                  id="reading"
-                  type="number"
-                  step="0.001"
-                  value={readValue}
-                  onChange={(e) => setReadValue(e.target.value)}
-                  required
-                />
-                <p className="text-sm text-content-muted">
-                  Текущее: {readMeter.lastReadingValue} {METER_UNIT_LABEL[readMeter.meterType]}
-                </p>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="reading-photo">Фото счётчика</Label>
-                <input
-                  id="reading-photo"
-                  ref={readFileRef}
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  required
-                  className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
-                />
-              </div>
-
-              {error && (
-                <p className="flex items-center gap-2 text-sm text-danger">
+            {pending ? (
+              <div className="space-y-4">
+                <p
+                  className={`flex items-center gap-2 rounded-md px-4 py-3 text-sm ${
+                    pending.warning
+                      ? 'border border-warn-line bg-warn-weak text-warn'
+                      : 'border border-line bg-surface-icon text-content-secondary'
+                  }`}
+                >
                   <AlertTriangle aria-hidden className="size-4 shrink-0" />
-                  {error}
+                  {pending.warning === null
+                    ? 'Показания изменились — проверьте расход'
+                    : pendingChanged
+                      ? 'Показания изменились, проверьте ещё раз'
+                      : pending.warning}
                 </p>
-              )}
+                <dl className="rounded-md border border-line px-4 py-3 text-sm">
+                  <div className="flex justify-between gap-4 py-1">
+                    <dt className="text-content-muted">Показание</dt>
+                    <dd className="font-semibold text-content">
+                      {readValue} {METER_UNIT_LABEL[readMeter.meterType]}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-1">
+                    <dt className="text-content-muted">Расход</dt>
+                    <dd className="font-semibold text-content">
+                      {pending.consumption} {METER_UNIT_LABEL[readMeter.meterType]}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4 py-1">
+                    <dt className="text-content-muted">Сумма</dt>
+                    <dd className="font-bold text-terracotta-500">
+                      {formatMoney(pending.cost)} ₽
+                    </dd>
+                  </div>
+                </dl>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setPending(null);
+                      setPendingChanged(false);
+                    }}
+                  >
+                    Исправить
+                  </Button>
+                  <Button type="button" disabled={busy} onClick={() => void onConfirmReading()}>
+                    {busy ? 'Сохранение…' : 'Всё верно, сохранить'}
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <form onSubmit={onSubmitReading} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="reading">
+                    Новое показание, {METER_UNIT_LABEL[readMeter.meterType]}
+                  </Label>
+                  <Input
+                    id="reading"
+                    type="number"
+                    step="0.001"
+                    value={readValue}
+                    onChange={(e) => setReadValue(e.target.value)}
+                    required
+                  />
+                  <p className="text-sm text-content-muted">
+                    Текущее: {readMeter.lastReadingValue}{' '}
+                    {METER_UNIT_LABEL[readMeter.meterType]}
+                  </p>
+                </div>
 
-              <DialogFooter>
-                <Button type="button" variant="secondary" onClick={() => setReadMeter(null)}>
-                  Отмена
-                </Button>
-                <Button type="submit" disabled={busy}>
-                  {busy ? 'Отправка…' : 'Отправить'}
-                </Button>
-              </DialogFooter>
-            </form>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reading-photo">Фото счётчика</Label>
+                  <input
+                    id="reading-photo"
+                    ref={readFileRef}
+                    type="file"
+                    accept="image/jpeg,image/png"
+                    required
+                    className="w-full text-sm text-content-secondary file:mr-3 file:rounded-pill file:border file:border-line-strong file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-semibold file:text-content"
+                  />
+                </div>
+
+                {error && (
+                  <p className="flex items-center gap-2 text-sm text-danger">
+                    <AlertTriangle aria-hidden className="size-4 shrink-0" />
+                    {error}
+                  </p>
+                )}
+
+                <DialogFooter>
+                  <Button type="button" variant="secondary" onClick={closeReading}>
+                    Отмена
+                  </Button>
+                  <Button type="submit" disabled={busy}>
+                    {busy ? 'Отправка…' : 'Отправить'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
           </DialogContent>
         )}
       </Dialog>

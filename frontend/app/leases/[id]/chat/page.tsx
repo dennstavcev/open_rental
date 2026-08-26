@@ -14,11 +14,13 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
+import { getLease, Lease } from '@/lib/leases';
 import { usePolling } from '@/lib/usePolling';
 
 function ChatInner() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const [lease, setLease] = useState<Lease | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [body, setBody] = useState('');
@@ -28,15 +30,20 @@ function ChatInner() {
   const [attachment, setAttachment] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const archived = lease?.status === 'terminated';
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      setMessages(await listMessages(id));
+      const [nextLease, nextMessages] = await Promise.all([
+        getLease(id),
+        listMessages(id),
+      ]);
+      setLease(nextLease);
+      setMessages(nextMessages);
+      setLoaded(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
-    } finally {
-      setLoaded(true);
     }
   }, [id]);
 
@@ -48,6 +55,14 @@ function ChatInner() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (!archived) return;
+    setBody('');
+    setOfficial(false);
+    setAttachment(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [archived]);
 
   async function onSend(e: FormEvent) {
     e.preventDefault();
@@ -71,7 +86,7 @@ function ChatInner() {
   return (
     <AppShell>
       <PageHeader back={`/leases/${id}`} backLabel="Договор" title="Чат" />
-      <LeaseTabs id={id} />
+      <LeaseTabs id={id} archived={archived} />
 
       {error && (
         <p
@@ -87,8 +102,12 @@ function ChatInner() {
         {loaded && messages.length === 0 ? (
           <EmptyState
             icon={MessageSquare}
-            title="Сообщений пока нет"
-            text="Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон."
+            title={archived ? 'Переписки не было' : 'Сообщений пока нет'}
+            text={
+              archived
+                ? undefined
+                : 'Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон.'
+            }
           />
         ) : (
           <div className="flex flex-col gap-3 py-2">
@@ -145,6 +164,13 @@ function ChatInner() {
           </div>
         )}
 
+        {!lease ? (
+          <p className="mt-4 text-content-muted">Загрузка…</p>
+        ) : archived ? (
+          <p className="mt-4 rounded-md border border-line bg-surface-icon px-4 py-3 text-sm text-content-muted">
+            Договор завершён — переписка доступна только для чтения
+          </p>
+        ) : (
         <form onSubmit={onSend} className="sticky bottom-0 mt-4 bg-surface-sticky pb-2 pt-3 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <label
@@ -190,6 +216,7 @@ function ChatInner() {
             Отметить как официальное сообщение
           </label>
         </form>
+        )}
       </div>
     </AppShell>
   );

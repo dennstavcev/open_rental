@@ -60,7 +60,7 @@ export class MetersService {
     await this.properties.findOneForOwner(ownerId, propertyId);
     const meters = await this.prisma.meter.findMany({
       where: { propertyId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
       include: { readings: { orderBy: { readingDate: 'desc' }, take: 1 } },
     });
     return meters.map(({ readings, ...meter }) => ({
@@ -108,7 +108,7 @@ export class MetersService {
     const readingsDaysLeft = calendarDaysUntil(readingsDueDate, now);
     const meters = await this.prisma.meter.findMany({
       where: { propertyId: lease.propertyId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
       include: {
         readings: {
           ...(lease.status === LeaseStatus.active
