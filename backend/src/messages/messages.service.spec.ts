@@ -3,6 +3,7 @@ import { MessagesService } from './messages.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { StorageProvider } from '../storage/storage-provider.interface';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const lease = { id: 'l1', landlordId: 'landlord1', tenantId: 'tenant1' };
 
@@ -11,6 +12,7 @@ describe('MessagesService', () => {
   let prisma: any;
   let leases: { getForUser: jest.Mock };
   let storage: jest.Mocked<StorageProvider>;
+  let notifications: { notifyOncePerLease: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -24,9 +26,11 @@ describe('MessagesService', () => {
     };
     leases = { getForUser: jest.fn().mockResolvedValue(lease) };
     storage = { put: jest.fn(), get: jest.fn(), delete: jest.fn(), getUrl: jest.fn() };
+    notifications = { notifyOncePerLease: jest.fn().mockResolvedValue({}) };
     service = new MessagesService(
       prisma as unknown as PrismaService,
       leases as unknown as LeasesService,
+      notifications as unknown as NotificationsService,
       storage,
     );
   });
@@ -35,6 +39,28 @@ describe('MessagesService', () => {
     await service.send('tenant1', 'l1', { body: 'привет' });
     expect(leases.getForUser).toHaveBeenCalledWith('tenant1', 'l1');
     expect(prisma.message.create.mock.calls[0][0].data.senderId).toBe('tenant1');
+  });
+
+  it('send уведомляет контрагента, но не автора', async () => {
+    await service.send('tenant1', 'l1', { body: 'привет' });
+    expect(notifications.notifyOncePerLease).toHaveBeenCalledTimes(1);
+    expect(notifications.notifyOncePerLease).toHaveBeenCalledWith(
+      'landlord1',
+      'l1',
+      expect.objectContaining({ type: 'message_new' }),
+    );
+    expect(notifications.notifyOncePerLease).not.toHaveBeenCalledWith(
+      'tenant1',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('send возвращает сообщение, когда уведомление завершилось best-effort ошибкой', async () => {
+    notifications.notifyOncePerLease.mockResolvedValue(null);
+    await expect(
+      service.send('tenant1', 'l1', { body: 'привет' }),
+    ).resolves.toEqual({ id: 'm1' });
   });
 
   it('list недоступен постороннему (getForUser бросает)', async () => {

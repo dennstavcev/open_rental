@@ -36,6 +36,7 @@ export interface LeaseInvitationView {
   invitedEmail: string;
   status: InvitationStatus;
   createdAt: Date;
+  token: string | null;
 }
 
 export type LeaseView = Lease & {
@@ -56,11 +57,21 @@ export interface PayoutDetailsView {
   filled: boolean;
 }
 
-export type InvitationView = Invitation & {
+export interface InvitationView {
+  id: string;
+  leaseId: string;
+  invitedEmail: string;
+  status: InvitationStatus;
+  createdAt: Date;
   landlord: { fullName: string; email: string };
   property: { address: string };
   lease: Pick<Lease, 'startDate' | 'endDate' | 'rentAmount'>;
-};
+}
+
+export interface InvitationByTokenView {
+  invitedEmail: string;
+  propertyAddress: string;
+}
 
 const LEASE_VIEW_INCLUDE = {
   property: { select: { id: true, address: true } },
@@ -155,6 +166,10 @@ export class LeasesService {
               invitedEmail: latest.invitedEmail,
               status: latest.status,
               createdAt: latest.createdAt,
+              token:
+                latest.status === InvitationStatus.pending
+                  ? latest.token
+                  : null,
             }
           : null,
     };
@@ -266,7 +281,11 @@ export class LeasesService {
       },
     });
     return invitations.map(({ lease, ...invitation }) => ({
-      ...invitation,
+      id: invitation.id,
+      leaseId: invitation.leaseId,
+      invitedEmail: invitation.invitedEmail,
+      status: invitation.status,
+      createdAt: invitation.createdAt,
       landlord: lease.landlord,
       property: lease.property,
       lease: {
@@ -275,6 +294,28 @@ export class LeasesService {
         rentAmount: lease.rentAmount,
       },
     }));
+  }
+
+  // Публичный минимум для формы регистрации по ссылке. Эндпоинт раскрывает
+  // ровно email приглашённого и адрес объекта (ADR-0035).
+  async getInvitationByToken(token: string): Promise<InvitationByTokenView> {
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { token },
+      include: {
+        lease: {
+          select: { property: { select: { address: true } } },
+        },
+      },
+    });
+    if (!invitation || invitation.status !== InvitationStatus.pending) {
+      throw new NotFoundException(
+        'Приглашение не найдено или уже недействительно',
+      );
+    }
+    return {
+      invitedEmail: invitation.invitedEmail,
+      propertyAddress: invitation.lease.property.address,
+    };
   }
 
   async getPayoutDetails(
@@ -334,6 +375,7 @@ export class LeasesService {
       type: 'invitation_accepted',
       title: 'Приглашение принято',
       body: 'Арендатор принял приглашение — загрузите подписанные сканы для заключения договора.',
+      leaseId: lease.id,
     });
     return updated;
   }
@@ -342,11 +384,26 @@ export class LeasesService {
     userEmail: string,
     invitationId: string,
   ): Promise<void> {
-    await this.getPendingInvitationFor(userEmail, invitationId);
+    const invitation = await this.getPendingInvitationFor(
+      userEmail,
+      invitationId,
+    );
+    const lease = await this.prisma.lease.findUnique({
+      where: { id: invitation.leaseId },
+      select: { id: true, landlordId: true },
+    });
     await this.prisma.invitation.update({
       where: { id: invitationId },
       data: { status: 'declined' },
     });
+    if (lease) {
+      await this.notifications.notify(lease.landlordId, {
+        type: 'invitation_declined',
+        title: 'Приглашение отклонено',
+        body: 'Арендатор отклонил приглашение — измените условия и отправьте снова.',
+        leaseId: invitation.leaseId,
+      });
+    }
   }
 
   // Договор, по которому landlord ещё может распоряжаться приглашением:

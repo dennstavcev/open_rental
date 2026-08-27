@@ -12,6 +12,7 @@ import {
   Gauge,
   Info,
   Mail,
+  MessageSquare,
   Plus,
   Wallet,
 } from 'lucide-react';
@@ -82,12 +83,14 @@ function DashboardInner() {
       subtitle: `${inv.property.address} · ${inv.landlord.fullName}`,
       href: '/invitations',
     }));
-    if (notes.some((n) => !n.readAt)) {
-      const n = notes.filter((x) => !x.readAt).length;
+    const unreadGeneral = notes.filter(
+      (note) => !note.readAt && note.type !== 'message_new',
+    ).length;
+    if (unreadGeneral > 0) {
       acts.push({
         key: 'notes',
         icon: Bell,
-        title: `${n} непрочитанных уведомлений`,
+        title: `${unreadGeneral} непрочитанных уведомлений`,
         subtitle: 'Посмотреть события',
         href: '/notifications',
       });
@@ -98,6 +101,22 @@ function DashboardInner() {
       leases.map(async (l) => {
         const role = l.tenantId === uid ? 'tenant' : 'landlord';
         const place = addrMap[l.propertyId] ?? l.property.address;
+        if (
+          notes.some(
+            (note) =>
+              !note.readAt &&
+              note.leaseId === l.id &&
+              note.type === 'message_new',
+          )
+        ) {
+          acts.push({
+            key: `chat-${l.id}`,
+            icon: MessageSquare,
+            title: 'Новое сообщение в чате',
+            subtitle: place,
+            href: `/leases/${l.id}/chat`,
+          });
+        }
         if (l.status === 'sent' || l.status === 'active') {
           const partyInfo = await getPartyInfoStatus(l.id).catch(() => null);
           if (partyInfo && (!partyInfo.self.filled || partyInfo.self.needsConsent)) {

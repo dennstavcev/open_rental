@@ -4,6 +4,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { LeasesService } from './leases.service';
 import { LeasesController } from './leases.controller';
 import { InvitationsController } from './invitations.controller';
+import { InvitationLinkController } from './invitation-link.controller';
 import { LeaseSignedScansService } from './lease-signed-scans.service';
 import { LeaseSignedScansController } from './lease-signed-scans.controller';
 import { LeaseSignedScansAdminController } from './lease-signed-scans-admin.controller';
@@ -19,6 +20,7 @@ import { LeaseReturnActController } from './lease-return-act.controller';
   controllers: [
     LeasesController,
     InvitationsController,
+    InvitationLinkController,
     LeaseSignedScansController,
     LeaseSignedScansAdminController,
     LeaseDocumentsController,

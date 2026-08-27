@@ -14,7 +14,9 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { listMessages, Message, openAttachment, sendMessage } from '@/lib/chat';
+import { notifyNotificationsChanged } from '@/lib/events';
 import { getLease, Lease } from '@/lib/leases';
+import { markLeaseRead } from '@/lib/notifications';
 import { usePolling } from '@/lib/usePolling';
 
 function ChatInner() {
@@ -42,6 +44,15 @@ function ChatInner() {
       setLease(nextLease);
       setMessages(nextMessages);
       setLoaded(true);
+      // Чат открыт — значит его уведомления прочитаны. Это выполняется после
+      // каждой удачной загрузки, чтобы погасить и сообщения, пришедшие при
+      // уже открытом экране.
+      try {
+        const { count } = await markLeaseRead(id, 'message_new');
+        if (count > 0) notifyNotificationsChanged();
+      } catch {
+        // Следующий цикл опроса попробует снова.
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Ошибка загрузки');
     }

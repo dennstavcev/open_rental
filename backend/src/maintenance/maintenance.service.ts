@@ -13,6 +13,7 @@ import {
   MaintenanceRequest,
   MaintenanceStatus,
   ServiceType,
+  SettlementPayer,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
@@ -23,11 +24,24 @@ import {
 } from '../storage/storage-provider.interface';
 import { CreateMaintenanceDto } from './dto/create-maintenance.dto';
 import { ProposeSettlementDto } from './dto/propose-settlement.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const ALLOWED_PHOTO: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'application/pdf': 'pdf',
+};
+
+const STATUS_LABEL: Record<MaintenanceStatus, string> = {
+  open: 'Открыта',
+  in_progress: 'В работе',
+  resolved: 'Решена',
+};
+
+const PAYER_LABEL: Record<SettlementPayer, string> = {
+  tenant: 'арендатор',
+  owner: 'собственник',
+  split: 'пополам',
 };
 
 export interface RequestPhoto {
@@ -41,6 +55,7 @@ export class MaintenanceService {
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
     private readonly billing: BillingService,
+    private readonly notifications: NotificationsService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
@@ -71,7 +86,7 @@ export class MaintenanceService {
       await this.storage.put(photoStorageKey, photo.buffer, photo.mimetype);
     }
 
-    return this.prisma.maintenanceRequest.create({
+    const request = await this.prisma.maintenanceRequest.create({
       data: {
         leaseId,
         createdById: userId,
@@ -80,6 +95,13 @@ export class MaintenanceService {
         photoStorageKey,
       },
     });
+    await this.notifications.notify(lease.landlordId, {
+      type: 'maintenance_created',
+      title: 'Новая заявка на обслуживание',
+      body: 'Арендатор создал заявку — откройте раздел «Заявки».',
+      leaseId,
+    });
+    return request;
   }
 
   async list(
@@ -112,6 +134,8 @@ export class MaintenanceService {
         'Договор не действует — заявку нельзя изменить',
       );
     }
+    let updated: MaintenanceRequest;
+    let changed = false;
     if (status === MaintenanceStatus.resolved) {
       const service = await this.prisma.service.findUnique({
         where: { sourceRequestId: request.id },
@@ -119,13 +143,41 @@ export class MaintenanceService {
       if (service && service.billedAt === null) {
         // Только заявка с неоплаченной услугой требует текущий черновик.
         await this.billing.ensureCurrentDraft(lease);
-        return this.billing.resolveRequestWithService(lease, request, service);
+        updated = await this.billing.resolveRequestWithService(
+          lease,
+          request,
+          service,
+        );
+        changed = true;
+      } else {
+        const claimed = await this.prisma.maintenanceRequest.updateMany({
+          where: { id: request.id, status: { not: status } },
+          data: { status },
+        });
+        changed = claimed.count === 1;
+        updated = await this.prisma.maintenanceRequest.findUniqueOrThrow({
+          where: { id: request.id },
+        });
       }
+    } else {
+      const claimed = await this.prisma.maintenanceRequest.updateMany({
+        where: { id: request.id, status: { not: status } },
+        data: { status },
+      });
+      changed = claimed.count === 1;
+      updated = await this.prisma.maintenanceRequest.findUniqueOrThrow({
+        where: { id: request.id },
+      });
     }
-    return this.prisma.maintenanceRequest.update({
-      where: { id: request.id },
-      data: { status },
-    });
+    if (changed && lease.tenantId) {
+      await this.notifications.notify(lease.tenantId, {
+        type: 'maintenance_status',
+        title: 'Статус заявки изменён',
+        body: `Новый статус: ${STATUS_LABEL[status]}.`,
+        leaseId: lease.id,
+      });
+    }
+    return updated;
   }
 
   // Предложение суммы урегулирования любой стороной. Сбрасывает
@@ -145,7 +197,7 @@ export class MaintenanceService {
       throw new ConflictException('Сумма уже согласована и применена');
     }
     const isTenant = lease.tenantId === userId;
-    return this.prisma.maintenanceRequest.update({
+    const updated = await this.prisma.maintenanceRequest.update({
       where: { id: request.id },
       data: {
         settlementAmount: dto.amount,
@@ -154,6 +206,17 @@ export class MaintenanceService {
         confirmedByLandlord: !isTenant,
       },
     });
+    const other =
+      lease.tenantId === userId ? lease.landlordId : lease.tenantId;
+    if (other) {
+      await this.notifications.notify(other, {
+        type: 'maintenance_settlement_proposed',
+        title: 'Предложена сумма по заявке',
+        body: `Сумма: ${dto.amount} ₽. Кто платит: ${PAYER_LABEL[dto.payer]}.`,
+        leaseId: lease.id,
+      });
+    }
+    return updated;
   }
 
   // Подтверждение суммы второй стороной. Согласованная заявка создаёт
@@ -181,13 +244,34 @@ export class MaintenanceService {
 
     if (!(confirmedByTenant && confirmedByLandlord)) {
       // Пока подтвердила лишь одна сторона — только фиксируем подтверждение.
-      return this.prisma.maintenanceRequest.update({
-        where: { id: request.id },
+      const claimed = await this.prisma.maintenanceRequest.updateMany({
+        where: {
+          id: request.id,
+          settlementAppliedAt: null,
+          OR: [
+            { confirmedByTenant: { not: confirmedByTenant } },
+            { confirmedByLandlord: { not: confirmedByLandlord } },
+          ],
+        },
         data: { confirmedByTenant, confirmedByLandlord },
       });
+      const updated = await this.prisma.maintenanceRequest.findUniqueOrThrow({
+        where: { id: request.id },
+      });
+      const other =
+        lease.tenantId === userId ? lease.landlordId : lease.tenantId;
+      if (claimed.count === 1 && other) {
+        await this.notifications.notify(other, {
+          type: 'maintenance_settlement_confirmed',
+          title: 'Сумма по заявке подтверждена',
+          body: 'Ждём подтверждения второй стороны.',
+          leaseId: lease.id,
+        });
+      }
+      return updated;
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const appliedAt = new Date();
       const claimed = await tx.maintenanceRequest.updateMany({
         where: { id: request.id, settlementAppliedAt: null },
@@ -217,8 +301,19 @@ export class MaintenanceService {
       if (!updated) {
         throw new NotFoundException('Заявка не найдена');
       }
-      return updated;
+      return { updated, applied: claimed.count === 1 };
     });
+    const other =
+      lease.tenantId === userId ? lease.landlordId : lease.tenantId;
+    if (result.applied && other) {
+      await this.notifications.notify(other, {
+        type: 'maintenance_settlement_applied',
+        title: 'Сумма по заявке согласована',
+        body: `${request.settlementAmount} ₽ — сумма попадёт в счёт.`,
+        leaseId: lease.id,
+      });
+    }
+    return result.updated;
   }
 
   private async load(

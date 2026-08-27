@@ -41,7 +41,7 @@ ADR — короткий документ, фиксирующий одно ар�
 | [0032](0032-activation-requires-signed-document-and-party-info.md) | Активация договора требует подписанного текста и ПДн | Принято |
 | [0033](0033-pii-retention-deletes-lease-document.md) | Ретеншен ПДн удаляет весь LeaseDocument | Принято |
 | [0034](0034-meter-reading-history-lease-scoped-access.md) | История показаний счётчика — доступ по договору, не только активному | Принято |
-| [0031](0031-production-deployment-contour.md) | Production-контур — Docker Compose, immutable-образы и SSH-деплой | Принято |
+| [0035](0035-public-invitation-lookup-by-token.md) | Публичный поиск приглашения по токену | Принято |
 
 ## Как завести новый ADR
 

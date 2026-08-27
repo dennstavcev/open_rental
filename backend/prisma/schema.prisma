@@ -51,6 +51,12 @@ model Notification {
   id        String    @id @default(uuid())
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  // Договор, к которому относится событие: нужен для дедупликации
+  // (одно непрочитанное «новое сообщение» на договор) и для бейджа у
+  // нужного договора. Nullable — уведомления вне договора и все
+  // созданные до Фазы 13 остаются без привязки.
+  lease     Lease?    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  leaseId   String?
   type      String
   title     String
   body      String
@@ -58,6 +64,7 @@ model Notification {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+  @@index([userId, leaseId, type, readAt])
   @@map("notifications")
 }
 
@@ -153,6 +160,7 @@ model Lease {
   documents           LeaseDocument[]
   inventoryItems      LeaseInventoryItem[]
   partyInfo           LeasePartyInfo[]
+  notifications       Notification[]
 
   @@index([propertyId])
   @@index([landlordId])

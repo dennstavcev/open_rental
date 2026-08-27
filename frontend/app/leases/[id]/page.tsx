@@ -26,6 +26,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/api';
+import { copyText } from '@/lib/clipboard';
 import {
   cancelLeaseInvitation,
   confirmReturnAct,
@@ -130,6 +131,8 @@ function LeaseDetailInner() {
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [editingInvite, setEditingInvite] = useState(false);
+  const [origin, setOrigin] = useState('');
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const returnActOutdated = useRef(false);
@@ -177,7 +180,16 @@ function LeaseDetailInner() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(
+    () => setOrigin(process.env.NEXT_PUBLIC_APP_URL || window.location.origin),
+    [],
+  );
   usePolling(load, 30000);
+
+  const inviteLink =
+    origin && lease?.invitation?.token
+      ? `${origin}/register?invite=${lease.invitation.token}`
+      : '';
 
   async function onSend(e: FormEvent) {
     e.preventDefault();
@@ -208,6 +220,16 @@ function LeaseDetailInner() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onCopyInvite() {
+    if (!(await copyText(inviteLink))) {
+      setError('Не удалось скопировать — выделите ссылку вручную');
+      return;
+    }
+    setError(null);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 1500);
   }
 
   async function onGenerate() {
@@ -481,7 +503,9 @@ function LeaseDetailInner() {
                 </Section>
               )}
 
-              {isLandlord && lease.status === 'sent' && lease.invitation && (
+              {isLandlord &&
+                lease.status === 'sent' &&
+                lease.invitation && (
                 <Section title="Приглашение" className="mt-0">
                   {editingInvite ? (
                     <form onSubmit={onSend} className="space-y-3">
@@ -518,10 +542,31 @@ function LeaseDetailInner() {
                     <Card>
                       <Fact label="Отправлено на" value={lease.invitation.invitedEmail} />
                       <Fact label="Когда" value={lease.invitation.createdAt.slice(0, 10)} />
+                      {inviteLink && (
+                        <div className="border-t border-line p-5">
+                          <p className="font-mono text-sm text-content [overflow-wrap:anywhere] break-all">
+                            {inviteLink}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="mt-3"
+                            onClick={() => void onCopyInvite()}
+                          >
+                            {inviteCopied ? 'Скопировано' : 'Скопировать ссылку'}
+                          </Button>
+                          <p className="mt-3 text-sm text-content-muted">
+                            Отправьте её арендатору любым удобным способом — почтой,
+                            мессенджером. Ссылка привязана к указанному адресу почты.
+                          </p>
+                        </div>
+                      )}
                       <div className="border-t border-line p-5">
                         <p className="text-sm text-content-muted">
-                          Арендатор ещё не принял приглашение. Проверьте адрес — если в
-                          нём опечатка, отправьте заново на верный.
+                          {lease.invitation.status === 'declined'
+                            ? 'Арендатор отклонил приглашение. Его можно отправить заново на тот же или другой адрес.'
+                            : 'Арендатор ещё не принял приглашение. Проверьте адрес — если в нём опечатка, отправьте заново на верный.'}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-3">
                           <Button

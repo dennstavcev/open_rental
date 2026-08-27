@@ -38,6 +38,7 @@ export interface Lease {
   invitation: {
     invitedEmail: string;
     status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+    token: string | null;
     createdAt: string;
   } | null;
 }
@@ -96,6 +97,17 @@ export function cancelLeaseInvitation(id: string): Promise<Lease> {
 
 export function listInvitations(): Promise<Invitation[]> {
   return apiFetch<Invitation[]>('/invitations');
+}
+
+export interface InvitationByToken {
+  invitedEmail: string;
+  propertyAddress: string;
+}
+
+export function getInvitationByToken(token: string): Promise<InvitationByToken> {
+  return apiFetch<InvitationByToken>(
+    `/invitations/by-token/${encodeURIComponent(token)}`,
+  );
 }
 
 export function acceptInvitation(id: string): Promise<unknown> {

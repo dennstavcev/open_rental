@@ -16,7 +16,7 @@ import { Logo } from './Logo';
 import { useAuth } from '@/lib/auth';
 import { listNotifications } from '@/lib/notifications';
 import { listInvitations } from '@/lib/leases';
-import { INVITATIONS_CHANGED } from '@/lib/events';
+import { INVITATIONS_CHANGED, NOTIFICATIONS_CHANGED } from '@/lib/events';
 import { usePolling } from '@/lib/usePolling';
 import { cn } from './ui/cn';
 
@@ -87,6 +87,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener(INVITATIONS_CHANGED, refreshInvites);
     return () => window.removeEventListener(INVITATIONS_CHANGED, refreshInvites);
   }, [refreshInvites]);
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED, refreshUnread);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, refreshUnread);
+  }, [refreshUnread]);
   usePolling(refreshUnread, 30000);
   usePolling(refreshInvites, 30000);
 

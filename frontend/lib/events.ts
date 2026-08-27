@@ -6,8 +6,14 @@
 // обязан исчезнуть (ADR-0020), а не висеть до следующего опроса, ведя на
 // пустой экран.
 export const INVITATIONS_CHANGED = 'softrent:invitations-changed';
+export const NOTIFICATIONS_CHANGED = 'softrent:notifications-changed';
 
 export function notifyInvitationsChanged(): void {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new Event(INVITATIONS_CHANGED));
+}
+
+export function notifyNotificationsChanged(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
 }

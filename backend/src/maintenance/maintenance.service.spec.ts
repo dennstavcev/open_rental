@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { BillingService } from '../billing/billing.service';
 import { StorageProvider } from '../storage/storage-provider.interface';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const lease = {
   id: 'l1',
@@ -28,12 +29,18 @@ describe('MaintenanceService', () => {
     resolveRequestWithService: jest.Mock;
   };
   let storage: jest.Mocked<StorageProvider>;
+  let notifications: { notify: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       maintenanceRequest: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn().mockImplementation(() => {
+          const calls = prisma.maintenanceRequest.updateMany.mock.calls;
+          const data = calls.length ? calls[calls.length - 1][0].data : {};
+          return { id: 'req1', ...data };
+        }),
         findMany: jest.fn(),
         update: jest.fn().mockImplementation(({ data }) => ({ id: 'req1', ...data })),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -55,10 +62,12 @@ describe('MaintenanceService', () => {
         })),
     };
     storage = { put: jest.fn(), get: jest.fn(), delete: jest.fn(), getUrl: jest.fn() };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     service = new MaintenanceService(
       prisma as unknown as PrismaService,
       leases as unknown as LeasesService,
       billing as unknown as BillingService,
+      notifications as unknown as NotificationsService,
       storage,
     );
   });
@@ -170,7 +179,7 @@ describe('MaintenanceService', () => {
       );
 
       expect(billing.resolveRequestWithService).not.toHaveBeenCalled();
-      expect(prisma.maintenanceRequest.update).toHaveBeenCalled();
+      expect(prisma.maintenanceRequest.updateMany).toHaveBeenCalled();
     });
 
     it('повторный resolved достреливает услугу без billedAt', async () => {
@@ -227,6 +236,26 @@ describe('MaintenanceService', () => {
         service.updateStatus('landlord1', 'req1', MaintenanceStatus.resolved),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(billing.ensureCurrentDraft).not.toHaveBeenCalled();
+    });
+
+    it('не уведомляет, если статус уже был целевым', async () => {
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+      });
+      prisma.maintenanceRequest.updateMany.mockResolvedValue({ count: 0 });
+      prisma.maintenanceRequest.findUniqueOrThrow.mockResolvedValue({
+        id: 'req1',
+        status: MaintenanceStatus.in_progress,
+      });
+
+      await service.updateStatus(
+        'landlord1',
+        'req1',
+        MaintenanceStatus.in_progress,
+      );
+
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 
@@ -301,6 +330,24 @@ describe('MaintenanceService', () => {
       expect(prisma.service.create).not.toHaveBeenCalled();
     });
 
+    it('частичное повторное подтверждение не уведомляет контрагента', async () => {
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+        settlementAppliedAt: null,
+        settlementAmount: 4000,
+        settlementPayer: SettlementPayer.split,
+        confirmedByTenant: false,
+        confirmedByLandlord: false,
+      });
+      prisma.maintenanceRequest.updateMany.mockResolvedValue({ count: 0 });
+      prisma.maintenanceRequest.findUniqueOrThrow.mockResolvedValue({ id: 'req1' });
+
+      await service.confirmSettlement('tenant1', 'req1');
+
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
     it('двустороннее подтверждение создаёт разовую услугу, но не строку счёта', async () => {
       prisma.maintenanceRequest.findUnique.mockResolvedValue({
         id: 'req1',
@@ -357,6 +404,44 @@ describe('MaintenanceService', () => {
       prisma.maintenanceRequest.updateMany.mockResolvedValue({ count: 0 });
       await service.confirmSettlement('landlord1', 'req1');
       expect(prisma.service.create).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('применённое урегулирование уведомляет контрагента ровно один раз', async () => {
+      const request = {
+        id: 'req1',
+        leaseId: 'l1',
+        category: 'Ремонт',
+        description: 'Свободный текст',
+        settlementAppliedAt: null,
+        settlementAmount: 4000,
+        settlementPayer: SettlementPayer.owner,
+        confirmedByTenant: true,
+        confirmedByLandlord: false,
+      };
+      prisma.maintenanceRequest.findUnique
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce({ ...request, settlementAppliedAt: new Date() });
+
+      await service.confirmSettlement('landlord1', 'req1');
+
+      expect(notifications.notify).toHaveBeenCalledTimes(1);
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'tenant1',
+        expect.objectContaining({ type: 'maintenance_settlement_applied' }),
+      );
+    });
+
+    it('тела maintenance-уведомлений не раскрывают свободный текст заявки', async () => {
+      prisma.maintenanceRequest.create.mockResolvedValue({ id: 'req1' });
+      await service.create('tenant1', 'l1', {
+        category: 'Секретная категория',
+        description: 'Секретное описание',
+      });
+
+      const input = notifications.notify.mock.calls[0][1];
+      expect(input.body).not.toContain('Секретная категория');
+      expect(input.body).not.toContain('Секретное описание');
     });
 
     it('повторное применение → Conflict', async () => {

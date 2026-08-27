@@ -3,10 +3,12 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { LeaseStatus } from '@prisma/client';
+import { InvitationStatus, LeaseStatus } from '@prisma/client';
 import { LeasesService } from './leases.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PropertiesService } from '../properties/properties.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { InvitationLinkController } from './invitation-link.controller';
 
 type PrismaMock = {
   lease: {
@@ -57,6 +59,7 @@ describe('LeasesService', () => {
   let service: LeasesService;
   let prisma: PrismaMock;
   let properties: { findOneForOwner: jest.Mock };
+  let notifications: { notify: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -80,11 +83,11 @@ describe('LeasesService', () => {
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     properties = { findOneForOwner: jest.fn() };
-    const notifications = { notify: jest.fn().mockResolvedValue({}) };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     service = new LeasesService(
       prisma as unknown as PrismaService,
       properties as unknown as PropertiesService,
-      notifications as unknown as import('../notifications/notifications.service').NotificationsService,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -219,6 +222,8 @@ describe('LeasesService', () => {
           leaseId: 'l1',
           invitedEmail: 'tenant@mail.ru',
           status: 'pending',
+          token: 'secret-token',
+          createdAt: new Date('2026-08-20'),
           lease: {
             landlord: { fullName: 'Иван Петров', email: 'landlord@x.ru' },
             property: { address: 'Москва, Тверская 1' },
@@ -243,6 +248,44 @@ describe('LeasesService', () => {
       // Вложенный lease не протекает в ответ целиком.
       expect((inv as unknown as { lease: { landlord?: unknown } }).lease.landlord)
         .toBeUndefined();
+      expect(inv).not.toHaveProperty('token');
+    });
+  });
+
+  describe('getInvitationByToken', () => {
+    it('pending отдаёт ровно email и адрес объекта', async () => {
+      prisma.invitation.findUnique.mockResolvedValue({
+        invitedEmail: 'tenant@mail.ru',
+        status: InvitationStatus.pending,
+        lease: { property: { address: 'Москва, Тверская 1' } },
+      });
+
+      await expect(service.getInvitationByToken('token')).resolves.toEqual({
+        invitedEmail: 'tenant@mail.ru',
+        propertyAddress: 'Москва, Тверская 1',
+      });
+    });
+
+    it.each([
+      InvitationStatus.cancelled,
+      InvitationStatus.accepted,
+      InvitationStatus.declined,
+      null,
+    ])('непригодное состояние %s даёт одинаковый 404', async (status) => {
+      prisma.invitation.findUnique.mockResolvedValue(
+        status
+          ? {
+              invitedEmail: 'tenant@mail.ru',
+              status,
+              lease: { property: { address: 'Москва' } },
+            }
+          : null,
+      );
+
+      await expect(service.getInvitationByToken('token')).rejects.toMatchObject({
+        status: 404,
+        message: 'Приглашение не найдено или уже недействительно',
+      });
     });
   });
 
@@ -333,6 +376,31 @@ describe('LeasesService', () => {
     });
   });
 
+  describe('declineInvitation', () => {
+    it('уведомляет арендодателя', async () => {
+      prisma.invitation.findUnique.mockResolvedValue({
+        id: 'inv1',
+        leaseId: 'l1',
+        invitedEmail: 'tenant@mail.ru',
+        status: InvitationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+      });
+
+      await service.declineInvitation('tenant@mail.ru', 'inv1');
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'u1',
+        expect.objectContaining({
+          type: 'invitation_declined',
+          leaseId: 'l1',
+        }),
+      );
+    });
+  });
+
   describe('getForUser', () => {
     it('посторонний пользователь не видит договор → NotFound', async () => {
       prisma.lease.findUnique.mockResolvedValue(
@@ -368,16 +436,44 @@ describe('LeasesService', () => {
             invitedEmail: 'tenant@mail.ru',
             status: 'pending',
             createdAt: new Date('2026-08-20'),
+            token: 'pending-token',
           },
         ],
       });
       prisma.lease.findUnique.mockResolvedValue(row);
       const asLandlord = await service.getForUser('u1', 'l1');
       expect(asLandlord.invitation?.invitedEmail).toBe('tenant@mail.ru');
+      expect(asLandlord.invitation?.token).toBe('pending-token');
 
       prisma.lease.findUnique.mockResolvedValue(row);
       const asTenant = await service.getForUser('tenant1', 'l1');
       expect(asTenant.invitation).toBeNull();
     });
+
+    it.each([
+      InvitationStatus.accepted,
+      InvitationStatus.declined,
+      InvitationStatus.cancelled,
+    ])('не отдаёт токен собственнику для статуса %s', async (status) => {
+      prisma.lease.findUnique.mockResolvedValue(
+        leaseRow({
+          invitations: [
+            {
+              invitedEmail: 'tenant@mail.ru',
+              status,
+              createdAt: new Date('2026-08-20'),
+              token: 'stale-token',
+            },
+          ],
+        }),
+      );
+
+      const result = await service.getForUser('u1', 'l1');
+      expect(result.invitation?.token).toBeNull();
+    });
+  });
+
+  it('публичный InvitationLinkController не имеет guard metadata', () => {
+    expect(Reflect.getMetadata('__guards__', InvitationLinkController)).toBeUndefined();
   });
 });

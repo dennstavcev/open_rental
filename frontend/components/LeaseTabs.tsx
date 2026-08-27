@@ -1,7 +1,10 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { NOTIFICATIONS_CHANGED } from '@/lib/events';
+import { listNotifications } from '@/lib/notifications';
 import { StatusPill } from './StatusPill';
 import { cn } from './ui/cn';
 
@@ -12,12 +15,33 @@ import { cn } from './ui/cn';
 export function LeaseTabs({ id, archived = false }: { id: string; archived?: boolean }) {
   const pathname = usePathname();
   const base = `/leases/${id}`;
+  const chatHref = `${base}/chat`;
+  const [unreadChat, setUnreadChat] = useState(false);
+  const refresh = useCallback(async () => {
+    const notes = await listNotifications().catch(() => []);
+    setUnreadChat(
+      notes.some(
+        (note) =>
+          !note.readAt && note.leaseId === id && note.type === 'message_new',
+      ),
+    );
+  }, [id]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED, refresh);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, refresh);
+  }, [refresh]);
+
   const tabs = [
     { href: base, label: 'Договор' },
     { href: `${base}/bills`, label: 'Счета' },
     { href: `${base}/meters`, label: 'Показания' },
     { href: `${base}/requests`, label: 'Заявки' },
-    { href: `${base}/chat`, label: 'Чат' },
+    { href: chatHref, label: 'Чат' },
   ];
 
   return (
@@ -50,6 +74,15 @@ export function LeaseTabs({ id, archived = false }: { id: string; archived?: boo
               )}
             >
               {tab.label}
+              {tab.href === chatHref && unreadChat && pathname !== chatHref && (
+                <>
+                  <span
+                    aria-hidden
+                    className="ml-2 inline-block size-2 rounded-full bg-violet-500 align-middle"
+                  />
+                  <span className="sr-only">есть новые сообщения</span>
+                </>
+              )}
             </Link>
           );
         })}

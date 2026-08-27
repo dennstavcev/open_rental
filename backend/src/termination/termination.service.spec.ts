@@ -8,6 +8,7 @@ import { TerminationService } from './termination.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
 import { BillingService } from '../billing/billing.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const DAY = 24 * 60 * 60 * 1000;
 const activeLease = {
@@ -22,6 +23,7 @@ describe('TerminationService', () => {
   let prisma: any;
   let leases: { getForUser: jest.Mock };
   let billing: { applyTermination: jest.Mock };
+  let notifications: { notify: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -36,10 +38,12 @@ describe('TerminationService', () => {
     };
     leases = { getForUser: jest.fn().mockResolvedValue(activeLease) };
     billing = { applyTermination: jest.fn() };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     service = new TerminationService(
       prisma as unknown as PrismaService,
       leases as unknown as LeasesService,
       billing as unknown as BillingService,
+      notifications as unknown as NotificationsService,
     );
   });
 
@@ -48,6 +52,23 @@ describe('TerminationService', () => {
       const date = new Date(Date.now() + 40 * DAY).toISOString();
       await service.create('tenant1', 'l1', { requestedTerminationDate: date });
       expect(prisma.terminationRequest.create).toHaveBeenCalled();
+    });
+
+    it('уведомление о заявке использует русскую дату и не раскрывает reason', async () => {
+      const date = new Date('2026-10-06T00:00:00.000Z');
+      const now = jest
+        .spyOn(Date, 'now')
+        .mockReturnValue(new Date('2026-08-27T00:00:00.000Z').getTime());
+
+      await service.create('tenant1', 'l1', {
+        requestedTerminationDate: date.toISOString(),
+        reason: 'Личная секретная причина',
+      });
+
+      const input = notifications.notify.mock.calls[0][1];
+      expect(input.body).toContain('06.10.2026');
+      expect(input.body).not.toContain('Личная секретная причина');
+      now.mockRestore();
     });
 
     it('срок < 30 дней → BadRequest', async () => {
@@ -85,6 +106,30 @@ describe('TerminationService', () => {
         }),
       );
       expect(billing.applyTermination).toHaveBeenCalledWith(activeLease, reqDate);
+    });
+
+    it('уведомляет арендатора только после формирования последнего счёта', async () => {
+      const reqDate = new Date('2026-10-06T00:00:00.000Z');
+      prisma.terminationRequest.findUnique.mockResolvedValue({
+        id: 'tr1',
+        leaseId: 'l1',
+        requestedTerminationDate: reqDate,
+        status: TerminationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue(activeLease);
+
+      await service.finalize('landlord1', 'tr1', {});
+
+      expect(notifications.notify).toHaveBeenCalledWith(
+        'tenant1',
+        expect.objectContaining({
+          type: 'termination_finalized',
+          body: expect.stringContaining('06.10.2026'),
+        }),
+      );
+      expect(billing.applyTermination.mock.invocationCallOrder[0]).toBeLessThan(
+        notifications.notify.mock.invocationCallOrder[0],
+      );
     });
 
     it('tenant не может финализировать → Forbidden', async () => {

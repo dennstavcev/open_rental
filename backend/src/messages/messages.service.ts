@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { Message } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LeasesService } from '../leases/leases.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   STORAGE_PROVIDER,
   StorageProvider,
@@ -32,6 +33,7 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
+    private readonly notifications: NotificationsService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
 
@@ -41,7 +43,7 @@ export class MessagesService {
     dto: SendMessageDto,
     attachment?: MessageAttachment,
   ): Promise<Message> {
-    await this.leases.getForUser(userId, leaseId);
+    const lease = await this.leases.getForUser(userId, leaseId);
 
     let attachmentStorageKey: string | undefined;
     let attachmentMime: string | undefined;
@@ -61,7 +63,7 @@ export class MessagesService {
       attachmentName = attachment.originalname;
     }
 
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         leaseId,
         senderId: userId,
@@ -72,6 +74,16 @@ export class MessagesService {
         attachmentName,
       },
     });
+    const recipientId =
+      lease.landlordId === userId ? lease.tenantId : lease.landlordId;
+    if (recipientId) {
+      await this.notifications.notifyOncePerLease(recipientId, leaseId, {
+        type: 'message_new',
+        title: 'Новое сообщение',
+        body: 'В чате по договору появилось новое сообщение.',
+      });
+    }
+    return message;
   }
 
   async list(userId: string, leaseId: string): Promise<Message[]> {

@@ -11,8 +11,14 @@ import { LeasesService } from '../leases/leases.service';
 import { BillingService } from '../billing/billing.service';
 import { CreateTerminationDto } from './dto/create-termination.dto';
 import { FinalizeTerminationDto } from './dto/finalize-termination.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const MIN_NOTICE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function formatDate(date: Date): string {
+  const [year, month, day] = date.toISOString().slice(0, 10).split('-');
+  return `${day}.${month}.${year}`;
+}
 
 @Injectable()
 export class TerminationService {
@@ -20,6 +26,7 @@ export class TerminationService {
     private readonly prisma: PrismaService,
     private readonly leases: LeasesService,
     private readonly billing: BillingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Инициировать может любая сторона активного договора (в т.ч. tenant —
@@ -39,7 +46,7 @@ export class TerminationService {
         'Дата расторжения — не ранее чем через 30 дней',
       );
     }
-    return this.prisma.terminationRequest.create({
+    const request = await this.prisma.terminationRequest.create({
       data: {
         leaseId,
         initiatedById: userId,
@@ -47,6 +54,17 @@ export class TerminationService {
         reason: dto.reason,
       },
     });
+    const recipientId =
+      lease.landlordId === userId ? lease.tenantId : lease.landlordId;
+    if (recipientId) {
+      await this.notifications.notify(recipientId, {
+        type: 'termination_requested',
+        title: 'Заявка на расторжение',
+        body: `Дата расторжения — ${formatDate(requested)}. Инициатор: ${lease.tenantId === userId ? 'арендатор' : 'собственник'}.`,
+        leaseId,
+      });
+    }
+    return request;
   }
 
   async list(userId: string, leaseId: string): Promise<TerminationRequest[]> {
@@ -108,6 +126,14 @@ export class TerminationService {
 
     // Пропорциональный последний счёт (вне транзакции — своя логика биллинга).
     await this.billing.applyTermination(lease, effectiveEndDate);
+    if (lease.tenantId) {
+      await this.notifications.notify(lease.tenantId, {
+        type: 'termination_finalized',
+        title: 'Договор расторгнут',
+        body: `Договор завершён ${formatDate(effectiveEndDate)}. Проверьте последний счёт и возврат депозита.`,
+        leaseId: lease.id,
+      });
+    }
     return updated;
   }
 }

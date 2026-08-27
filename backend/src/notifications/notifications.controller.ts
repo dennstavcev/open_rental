@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -12,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../auth/strategies/jwt.strategy';
 import { NotificationsService } from './notifications.service';
+import { MarkLeaseReadDto } from './dto/mark-lease-read.dto';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -21,6 +23,15 @@ export class NotificationsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<Notification[]> {
     return this.notifications.list(user.id);
+  }
+
+  @Post('read')
+  @HttpCode(HttpStatus.OK)
+  markLeaseRead(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: MarkLeaseReadDto,
+  ): Promise<{ count: number }> {
+    return this.notifications.markLeaseRead(user.id, dto.leaseId, dto.type);
   }
 
   @Post(':id/read')
