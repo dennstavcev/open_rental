@@ -56,14 +56,6 @@ function ChatInner() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    if (!archived) return;
-    setBody('');
-    setOfficial(false);
-    setAttachment(null);
-    if (fileRef.current) fileRef.current.value = '';
-  }, [archived]);
-
   async function onSend(e: FormEvent) {
     e.preventDefault();
     if (!body.trim()) return;
@@ -102,12 +94,8 @@ function ChatInner() {
         {loaded && messages.length === 0 ? (
           <EmptyState
             icon={MessageSquare}
-            title={archived ? 'Переписки не было' : 'Сообщений пока нет'}
-            text={
-              archived
-                ? undefined
-                : 'Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон.'
-            }
+            title="Сообщений пока нет"
+            text="Обсуждайте вопросы по договору — переписка сохраняется для обеих сторон."
           />
         ) : (
           <div className="flex flex-col gap-3 py-2">
@@ -166,10 +154,6 @@ function ChatInner() {
 
         {!lease ? (
           <p className="mt-4 text-content-muted">Загрузка…</p>
-        ) : archived ? (
-          <p className="mt-4 rounded-md border border-line bg-surface-icon px-4 py-3 text-sm text-content-muted">
-            Договор завершён — переписка доступна только для чтения
-          </p>
         ) : (
         <form onSubmit={onSend} className="sticky bottom-0 mt-4 bg-surface-sticky pb-2 pt-3 backdrop-blur-md">
           <div className="flex items-center gap-2">

@@ -26,8 +26,8 @@ export function LeaseTabs({ id, archived = false }: { id: string; archived?: boo
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-line bg-surface-icon px-4 py-3">
           <StatusPill tone="neutral">Архив</StatusPill>
           <p className="text-sm text-content-muted">
-            Договор завершён. Новые показания, заявки и сообщения добавить нельзя;
-            счета и вся история открыты.
+            Договор завершён. Новые показания и заявки добавить нельзя; счета, переписка и вся
+            история открыты.
           </p>
         </div>
       )}
