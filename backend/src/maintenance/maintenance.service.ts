@@ -197,14 +197,20 @@ export class MaintenanceService {
       throw new ConflictException('Сумма уже согласована и применена');
     }
     const isTenant = lease.tenantId === userId;
-    const updated = await this.prisma.maintenanceRequest.update({
-      where: { id: request.id },
+    const claimed = await this.prisma.maintenanceRequest.updateMany({
+      where: { id: request.id, settlementAppliedAt: null },
       data: {
         settlementAmount: dto.amount,
         settlementPayer: dto.payer,
         confirmedByTenant: isTenant,
         confirmedByLandlord: !isTenant,
       },
+    });
+    if (claimed.count !== 1) {
+      throw new ConflictException('Сумма уже согласована и применена');
+    }
+    const updated = await this.prisma.maintenanceRequest.findUniqueOrThrow({
+      where: { id: request.id },
     });
     const other =
       lease.tenantId === userId ? lease.landlordId : lease.tenantId;
@@ -274,34 +280,42 @@ export class MaintenanceService {
     const result = await this.prisma.$transaction(async (tx) => {
       const appliedAt = new Date();
       const claimed = await tx.maintenanceRequest.updateMany({
-        where: { id: request.id, settlementAppliedAt: null },
+        where: {
+          id: request.id,
+          settlementAppliedAt: null,
+          settlementAmount: request.settlementAmount,
+          settlementPayer: request.settlementPayer,
+          confirmedByTenant: request.confirmedByTenant,
+          confirmedByLandlord: request.confirmedByLandlord,
+        },
         data: {
           confirmedByTenant: true,
           confirmedByLandlord: true,
           settlementAppliedAt: appliedAt,
         },
       });
-      if (claimed.count === 1) {
-        await tx.service.create({
-          data: {
-            propertyId: lease.propertyId,
-            name: `Заявка: ${request.category}`,
-            price: request.settlementAmount!,
-            serviceType: ServiceType.one_time,
-            payer: request.settlementPayer!,
-            sourceRequestId: request.id,
-            description: request.description.slice(0, 300),
-            billedAt: null,
-          },
-        });
+      if (claimed.count !== 1) {
+        throw new ConflictException(
+          'Условия урегулирования изменились или уже применены — обновите страницу',
+        );
       }
-      const updated = await tx.maintenanceRequest.findUnique({
+
+      await tx.service.create({
+        data: {
+          propertyId: lease.propertyId,
+          name: `Заявка: ${request.category}`,
+          price: request.settlementAmount!,
+          serviceType: ServiceType.one_time,
+          payer: request.settlementPayer!,
+          sourceRequestId: request.id,
+          description: request.description.slice(0, 300),
+          billedAt: null,
+        },
+      });
+      const updated = await tx.maintenanceRequest.findUniqueOrThrow({
         where: { id: request.id },
       });
-      if (!updated) {
-        throw new NotFoundException('Заявка не найдена');
-      }
-      return { updated, applied: claimed.count === 1 };
+      return { updated, applied: true };
     });
     const other =
       lease.tenantId === userId ? lease.landlordId : lease.tenantId;

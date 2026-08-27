@@ -64,12 +64,14 @@ function RequestCard({
   isLandlord,
   readOnly,
   reload,
+  onError,
 }: {
   req: MaintenanceRequest;
   isTenant: boolean;
   isLandlord: boolean;
   readOnly: boolean;
   reload: () => Promise<void>;
+  onError: (message: string) => void;
 }) {
   const [amount, setAmount] = useState('');
   const [payer, setPayer] = useState<SettlementPayer>('tenant');
@@ -80,6 +82,10 @@ function RequestCard({
     try {
       await fn();
       await reload();
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Ошибка изменения заявки';
+      await reload();
+      onError(message);
     } finally {
       setBusy(false);
     }
@@ -314,6 +320,7 @@ function RequestsInner() {
               isLandlord={isLandlord}
               readOnly={!lease || archived}
               reload={load}
+              onError={setError}
             />
           ))}
         </div>

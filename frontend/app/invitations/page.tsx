@@ -49,7 +49,9 @@ function InvitationsInner() {
       notifyInvitationsChanged();
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ошибка');
+      const message = err instanceof ApiError ? err.message : 'Ошибка';
+      await load();
+      setError(message);
     } finally {
       setBusyId(null);
     }

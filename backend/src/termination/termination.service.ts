@@ -103,8 +103,8 @@ export class TerminationService {
     const effectiveEndDate = override ?? request.requestedTerminationDate;
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.lease.update({
-        where: { id: lease.id },
+      const leaseClaimed = await tx.lease.updateMany({
+        where: { id: lease.id, status: LeaseStatus.active },
         data: {
           status: LeaseStatus.terminated,
           effectiveEndDate,
@@ -113,8 +113,12 @@ export class TerminationService {
             : {}),
         },
       });
-      return tx.terminationRequest.update({
-        where: { id },
+      if (leaseClaimed.count !== 1) {
+        throw new ConflictException('Договор уже расторгнут');
+      }
+
+      const claimed = await tx.terminationRequest.updateMany({
+        where: { id, status: TerminationStatus.pending },
         data: {
           status: TerminationStatus.finalized,
           finalizedById: userId,
@@ -122,6 +126,20 @@ export class TerminationService {
           periodEndOverride: override,
         },
       });
+      if (claimed.count !== 1) {
+        throw new ConflictException('Заявка уже обработана');
+      }
+
+      await tx.terminationRequest.updateMany({
+        where: {
+          leaseId: lease.id,
+          status: TerminationStatus.pending,
+          id: { not: id },
+        },
+        data: { status: TerminationStatus.cancelled },
+      });
+
+      return tx.terminationRequest.findUniqueOrThrow({ where: { id } });
     });
 
     // Пропорциональный последний счёт (вне транзакции — своя логика биллинга).

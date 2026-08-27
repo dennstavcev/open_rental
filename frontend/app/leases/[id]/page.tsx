@@ -200,7 +200,9 @@ function LeaseDetailInner() {
       setEditingInvite(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ошибка отправки');
+      const message = err instanceof ApiError ? err.message : 'Ошибка отправки';
+      await load();
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -216,7 +218,9 @@ function LeaseDetailInner() {
       setEditingInvite(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ошибка отмены');
+      const message = err instanceof ApiError ? err.message : 'Ошибка отмены';
+      await load();
+      setError(message);
     } finally {
       setBusy(false);
     }

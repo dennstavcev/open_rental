@@ -389,7 +389,7 @@ describe('MaintenanceService', () => {
       });
     });
 
-    it('гонка подтверждений: проигравший захват не создаёт вторую услугу', async () => {
+    it('гонка подтверждений: проигравший захват бросает и не создаёт вторую услугу', async () => {
       prisma.maintenanceRequest.findUnique.mockResolvedValue({
         id: 'req1',
         leaseId: 'l1',
@@ -402,9 +402,64 @@ describe('MaintenanceService', () => {
         confirmedByLandlord: false,
       });
       prisma.maintenanceRequest.updateMany.mockResolvedValue({ count: 0 });
-      await service.confirmSettlement('landlord1', 'req1');
+      await expect(
+        service.confirmSettlement('landlord1', 'req1'),
+      ).rejects.toMatchObject({
+        status: 409,
+        message:
+          'Условия урегулирования изменились или уже применены — обновите страницу',
+      });
       expect(prisma.service.create).not.toHaveBeenCalled();
       expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('гонка предложения: проигравший захват бросает и не уведомляет', async () => {
+      prisma.maintenanceRequest.findUnique.mockResolvedValue({
+        id: 'req1',
+        leaseId: 'l1',
+        settlementAppliedAt: null,
+      });
+      prisma.maintenanceRequest.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.proposeSettlement('tenant1', 'req1', {
+          amount: 4000,
+          payer: SettlementPayer.split,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Сумма уже согласована и применена',
+      });
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('применяющий захват привязан ко всему прочитанному снимку', async () => {
+      const request = {
+        id: 'req1',
+        leaseId: 'l1',
+        category: 'Ремонт',
+        description: 'Описание',
+        settlementAppliedAt: null,
+        settlementAmount: 4000,
+        settlementPayer: SettlementPayer.owner,
+        confirmedByTenant: true,
+        confirmedByLandlord: false,
+      };
+      prisma.maintenanceRequest.findUnique.mockResolvedValue(request);
+
+      await service.confirmSettlement('landlord1', 'req1');
+
+      expect(prisma.maintenanceRequest.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'req1',
+            settlementAmount: 4000,
+            settlementPayer: SettlementPayer.owner,
+            confirmedByTenant: true,
+            confirmedByLandlord: false,
+          }),
+        }),
+      );
     });
 
     it('применённое урегулирование уведомляет контрагента ровно один раз', async () => {

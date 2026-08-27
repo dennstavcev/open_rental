@@ -225,13 +225,21 @@ export class LeasesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const leaseClaimed = await tx.lease.updateMany({
+        where: {
+          id: leaseId,
+          tenantId: null,
+          status: { in: [LeaseStatus.draft, LeaseStatus.sent] },
+        },
+        data: { status: LeaseStatus.sent },
+      });
+      if (leaseClaimed.count !== 1) {
+        throw new ConflictException('Договор изменился — обновите страницу');
+      }
+
       await tx.invitation.updateMany({
         where: { leaseId, status: InvitationStatus.pending },
         data: { status: InvitationStatus.cancelled },
-      });
-      const lease = await tx.lease.update({
-        where: { id: leaseId },
-        data: { status: LeaseStatus.sent },
       });
       const invitation = await tx.invitation.create({
         data: {
@@ -239,6 +247,9 @@ export class LeasesService {
           invitedEmail: invitedEmail.toLowerCase(),
           token: randomUUID(),
         },
+      });
+      const lease = await tx.lease.findUniqueOrThrow({
+        where: { id: leaseId },
       });
       return { lease, invitation };
     });
@@ -255,13 +266,24 @@ export class LeasesService {
       throw new ConflictException('Договор ещё не отправлен арендатору');
     }
     return this.prisma.$transaction(async (tx) => {
+      const leaseClaimed = await tx.lease.updateMany({
+        where: {
+          id: leaseId,
+          status: LeaseStatus.sent,
+          tenantId: null,
+        },
+        data: { status: LeaseStatus.draft },
+      });
+      if (leaseClaimed.count !== 1) {
+        throw new ConflictException('Договор уже изменился');
+      }
+
       await tx.invitation.updateMany({
         where: { leaseId, status: InvitationStatus.pending },
         data: { status: InvitationStatus.cancelled },
       });
-      return tx.lease.update({
+      return tx.lease.findUniqueOrThrow({
         where: { id: leaseId },
-        data: { status: LeaseStatus.draft },
       });
     });
   }
@@ -360,14 +382,23 @@ export class LeasesService {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      await tx.invitation.update({
-        where: { id: invitationId },
-        data: { status: 'accepted' },
-      });
-      return tx.lease.update({
-        where: { id: lease.id },
+      const leaseClaimed = await tx.lease.updateMany({
+        where: { id: lease.id, tenantId: null },
         data: { tenantId: user.id },
       });
+      if (leaseClaimed.count !== 1) {
+        throw new ConflictException('К договору уже привязан арендатор');
+      }
+
+      const claimed = await tx.invitation.updateMany({
+        where: { id: invitationId, status: InvitationStatus.pending },
+        data: { status: InvitationStatus.accepted },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException('Приглашение уже обработано');
+      }
+
+      return tx.lease.findUniqueOrThrow({ where: { id: lease.id } });
     });
 
     // Уведомляем арендодателя, что приглашение принято.
@@ -392,10 +423,13 @@ export class LeasesService {
       where: { id: invitation.leaseId },
       select: { id: true, landlordId: true },
     });
-    await this.prisma.invitation.update({
-      where: { id: invitationId },
-      data: { status: 'declined' },
+    const claimed = await this.prisma.invitation.updateMany({
+      where: { id: invitationId, status: InvitationStatus.pending },
+      data: { status: InvitationStatus.declined },
     });
+    if (claimed.count !== 1) {
+      throw new ConflictException('Приглашение уже обработано');
+    }
     if (lease) {
       await this.notifications.notify(lease.landlordId, {
         type: 'invitation_declined',

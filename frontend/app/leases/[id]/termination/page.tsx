@@ -62,7 +62,9 @@ function TerminationInner() {
       setReason('');
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ошибка создания');
+      const message = err instanceof ApiError ? err.message : 'Ошибка создания';
+      await load();
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -78,7 +80,9 @@ function TerminationInner() {
       });
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Ошибка расторжения');
+      const message = err instanceof ApiError ? err.message : 'Ошибка расторжения';
+      await load();
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -162,7 +166,9 @@ function TerminationInner() {
                     <p className="mt-1 max-w-prose text-content-secondary">{t.reason}</p>
                   )}
 
-                  {t.status === 'pending' && isLandlord && (
+                  {t.status === 'pending' &&
+                    isLandlord &&
+                    lease?.status === 'active' && (
                     <div className="mt-4 rounded-md bg-sand-200/60 p-4">
                       <p className="mb-3 text-sm font-semibold text-content">Решение</p>
                       <div className="flex flex-wrap gap-4">

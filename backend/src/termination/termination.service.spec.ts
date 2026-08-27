@@ -30,10 +30,20 @@ describe('TerminationService', () => {
       terminationRequest: {
         create: jest.fn().mockResolvedValue({ id: 'tr1' }),
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          id: 'tr1',
+          leaseId: 'l1',
+          status: TerminationStatus.finalized,
+        }),
         findMany: jest.fn(),
         update: jest.fn().mockResolvedValue({ id: 'tr1' }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
-      lease: { findUnique: jest.fn(), update: jest.fn() },
+      lease: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       $transaction: jest.fn((cb) => cb(prisma)),
     };
     leases = { getForUser: jest.fn().mockResolvedValue(activeLease) };
@@ -100,8 +110,9 @@ describe('TerminationService', () => {
 
       await service.finalize('landlord1', 'tr1', {});
 
-      expect(prisma.lease.update).toHaveBeenCalledWith(
+      expect(prisma.lease.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: { id: 'l1', status: LeaseStatus.active },
           data: expect.objectContaining({ status: LeaseStatus.terminated }),
         }),
       );
@@ -144,6 +155,75 @@ describe('TerminationService', () => {
         service.finalize('tenant1', 'tr1', {}),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(billing.applyTermination).not.toHaveBeenCalled();
+    });
+
+    it('проигранный захват договора отклоняет запрос без внешних эффектов', async () => {
+      prisma.terminationRequest.findUnique.mockResolvedValue({
+        id: 'tr1',
+        leaseId: 'l1',
+        requestedTerminationDate: new Date(),
+        status: TerminationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue(activeLease);
+      prisma.lease.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.finalize('landlord1', 'tr1', {}),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Договор уже расторгнут',
+      });
+      expect(prisma.terminationRequest.updateMany).not.toHaveBeenCalled();
+      expect(billing.applyTermination).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('проигранный захват заявки бросает внутри транзакции и не запускает внешние эффекты', async () => {
+      prisma.terminationRequest.findUnique.mockResolvedValue({
+        id: 'tr1',
+        leaseId: 'l1',
+        requestedTerminationDate: new Date(),
+        status: TerminationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue(activeLease);
+      prisma.terminationRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.finalize('landlord1', 'tr1', {}),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Заявка уже обработана',
+      });
+      expect(prisma.lease.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.terminationRequest.updateMany).toHaveBeenCalledTimes(1);
+      expect(billing.applyTermination).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('после успеха отменяет остальные pending-заявки только этого договора', async () => {
+      const reqDate = new Date(Date.now() + 40 * DAY);
+      prisma.terminationRequest.findUnique.mockResolvedValue({
+        id: 'tr1',
+        leaseId: 'l1',
+        requestedTerminationDate: reqDate,
+        status: TerminationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue(activeLease);
+
+      const result = await service.finalize('landlord1', 'tr1', {});
+
+      expect(prisma.terminationRequest.updateMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          leaseId: 'l1',
+          status: TerminationStatus.pending,
+          id: { not: 'tr1' },
+        },
+        data: { status: TerminationStatus.cancelled },
+      });
+      expect(result).toEqual(
+        expect.objectContaining({ id: 'tr1', status: TerminationStatus.finalized }),
+      );
+      expect(billing.applyTermination).toHaveBeenCalledTimes(1);
     });
   });
 });

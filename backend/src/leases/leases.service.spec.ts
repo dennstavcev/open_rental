@@ -16,7 +16,9 @@ type PrismaMock = {
     findMany: jest.Mock;
     findFirst: jest.Mock;
     findUnique: jest.Mock;
+    findUniqueOrThrow: jest.Mock;
     update: jest.Mock;
+    updateMany: jest.Mock;
   };
   invitation: {
     create: jest.Mock;
@@ -68,14 +70,20 @@ describe('LeasesService', () => {
         findMany: jest.fn(),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
+        findUniqueOrThrow: jest.fn().mockImplementation(() => {
+          const calls = prisma.lease.updateMany.mock.calls;
+          const data = calls.length ? calls[calls.length - 1][0].data : {};
+          return { id: 'l1', tenantId: null, status: LeaseStatus.draft, ...data };
+        }),
         update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       invitation: {
         create: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       // По умолчанию landlord с email, не совпадающим с приглашаемым.
       user: { findUnique: jest.fn().mockResolvedValue({ email: 'landlord@x.ru' }) },
@@ -123,12 +131,15 @@ describe('LeasesService', () => {
   describe('send', () => {
     it('draft → sent и создаёт приглашение', async () => {
       prisma.lease.findUnique.mockResolvedValue(leaseRow());
-      prisma.lease.update.mockResolvedValue({ id: 'l1', status: 'sent' });
       prisma.invitation.create.mockResolvedValue({ id: 'inv1' });
 
       const res = await service.send('u1', 'l1', 'Tenant@Mail.ru');
-      expect(prisma.lease.update).toHaveBeenCalledWith({
-        where: { id: 'l1' },
+      expect(prisma.lease.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'l1',
+          tenantId: null,
+          status: { in: [LeaseStatus.draft, LeaseStatus.sent] },
+        },
         data: { status: LeaseStatus.sent },
       });
       // email нормализуется в нижний регистр.
@@ -136,6 +147,9 @@ describe('LeasesService', () => {
         'tenant@mail.ru',
       );
       expect(res.invitation.id).toBe('inv1');
+      expect(prisma.lease.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.invitation.updateMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('чужой договор → NotFound', async () => {
@@ -160,7 +174,6 @@ describe('LeasesService', () => {
       prisma.lease.findUnique.mockResolvedValue(
         leaseRow({ status: LeaseStatus.sent }),
       );
-      prisma.lease.update.mockResolvedValue({ id: 'l1', status: 'sent' });
       prisma.invitation.create.mockResolvedValue({ id: 'inv2' });
 
       const res = await service.send('u1', 'l1', 'fixed@mail.ru');
@@ -192,18 +205,33 @@ describe('LeasesService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
+    it('проигранный захват договора не отзывает и не создаёт приглашение', async () => {
+      prisma.lease.findUnique.mockResolvedValue(leaseRow());
+      prisma.lease.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.send('u1', 'l1', 'tenant@mail.ru'),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Договор изменился — обновите страницу',
+      });
+      expect(prisma.invitation.updateMany).not.toHaveBeenCalled();
+      expect(prisma.invitation.create).not.toHaveBeenCalled();
+    });
+
     it('отзыв приглашения возвращает договор в черновик', async () => {
       prisma.lease.findUnique.mockResolvedValue(
         leaseRow({ status: LeaseStatus.sent }),
       );
-      prisma.lease.update.mockResolvedValue({ id: 'l1', status: 'draft' });
-
       const lease = await service.cancelInvitation('u1', 'l1');
       expect(prisma.invitation.updateMany).toHaveBeenCalledWith({
         where: { leaseId: 'l1', status: 'pending' },
         data: { status: 'cancelled' },
       });
       expect(lease.status).toBe('draft');
+      expect(prisma.lease.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.invitation.updateMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('отзывать нечего, договор ещё черновик → Conflict', async () => {
@@ -211,6 +239,18 @@ describe('LeasesService', () => {
       await expect(
         service.cancelInvitation('u1', 'l1'),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('проигранный захват при отзыве не меняет приглашение', async () => {
+      prisma.lease.findUnique.mockResolvedValue(
+        leaseRow({ status: LeaseStatus.sent }),
+      );
+      prisma.lease.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.cancelInvitation('u1', 'l1'),
+      ).rejects.toMatchObject({ status: 409, message: 'Договор уже изменился' });
+      expect(prisma.invitation.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -339,15 +379,15 @@ describe('LeasesService', () => {
         status: 'pending',
       });
       prisma.lease.findUnique.mockResolvedValue({ id: 'l1', tenantId: null });
-      prisma.invitation.update.mockResolvedValue({});
-      prisma.lease.update.mockResolvedValue({ id: 'l1', tenantId: 'tenant1' });
-
       const lease = await service.acceptInvitation(user, 'inv1');
       expect(lease.tenantId).toBe('tenant1');
-      expect(prisma.invitation.update).toHaveBeenCalledWith({
-        where: { id: 'inv1' },
-        data: { status: 'accepted' },
+      expect(prisma.invitation.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv1', status: InvitationStatus.pending },
+        data: { status: InvitationStatus.accepted },
       });
+      expect(prisma.lease.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+        prisma.invitation.updateMany.mock.invocationCallOrder[0],
+      );
     });
 
     it('чужое приглашение (не тот email) → Forbidden', async () => {
@@ -360,7 +400,7 @@ describe('LeasesService', () => {
       await expect(
         service.acceptInvitation(user, 'inv1'),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(prisma.lease.update).not.toHaveBeenCalled();
+      expect(prisma.lease.updateMany).not.toHaveBeenCalled();
     });
 
     it('уже обработанное приглашение → Conflict', async () => {
@@ -373,6 +413,55 @@ describe('LeasesService', () => {
       await expect(
         service.acceptInvitation(user, 'inv1'),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('проигранный захват договора не меняет приглашение и не уведомляет', async () => {
+      prisma.invitation.findUnique.mockResolvedValue({
+        id: 'inv1',
+        leaseId: 'l1',
+        invitedEmail: 'tenant@mail.ru',
+        status: InvitationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+        tenantId: null,
+      });
+      prisma.lease.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.acceptInvitation(user, 'inv1'),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'К договору уже привязан арендатор',
+      });
+      expect(prisma.invitation.updateMany).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+
+    it('проигранный захват приглашения отклоняет всю транзакцию и не уведомляет', async () => {
+      prisma.invitation.findUnique.mockResolvedValue({
+        id: 'inv1',
+        leaseId: 'l1',
+        invitedEmail: 'tenant@mail.ru',
+        status: InvitationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+        tenantId: null,
+      });
+      prisma.invitation.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.acceptInvitation(user, 'inv1'),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Приглашение уже обработано',
+      });
+      expect(prisma.lease.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.lease.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 
@@ -398,6 +487,28 @@ describe('LeasesService', () => {
           leaseId: 'l1',
         }),
       );
+    });
+
+    it('проигранный захват не уведомляет арендодателя', async () => {
+      prisma.invitation.findUnique.mockResolvedValue({
+        id: 'inv1',
+        leaseId: 'l1',
+        invitedEmail: 'tenant@mail.ru',
+        status: InvitationStatus.pending,
+      });
+      prisma.lease.findUnique.mockResolvedValue({
+        id: 'l1',
+        landlordId: 'u1',
+      });
+      prisma.invitation.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.declineInvitation('tenant@mail.ru', 'inv1'),
+      ).rejects.toMatchObject({
+        status: 409,
+        message: 'Приглашение уже обработано',
+      });
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
   });
 
